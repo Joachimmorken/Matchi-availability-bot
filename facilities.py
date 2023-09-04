@@ -1,4 +1,4 @@
 facilities = {
-    voldslokka = 642
-    frogner = 2259
+    "voldsløkka": 642,
+    "frogner": 2259,
 }
