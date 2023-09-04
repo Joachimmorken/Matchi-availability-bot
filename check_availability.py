@@ -1,6 +1,8 @@
 import datetime  # Import the datetime module
 import time
 
+from facilities import facilities
+
 import requests
 from bs4 import BeautifulSoup
 from plyer import notification
@@ -12,9 +14,8 @@ def fetch_available_slots():
     tomorrows_date = (datetime.date.today() +
                       datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-    url = f"https://www.matchi.se/book/schedule?wl=&facilityId=642&date={todays_date}&sport=1"
-
-    # ... [rest of your code remains unchanged]
+    facility_to_check = facilities.voldslokka
+    url = f"https://www.matchi.se/book/schedule?wl=&facilityId={facility_to_check}&date={todays_date}&sport=1"
 
     # Fetch the content from the URL
     response = requests.get(url)
