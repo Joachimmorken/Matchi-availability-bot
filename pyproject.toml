@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "matchi-observer"
+version = "0.1.0"
+description = ""
+authors = ["Mathias <mathias@zerolytic.com>"]
+readme = "README.md"
+packages = [{include = "matchi_observer"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.31.0"
+beautifulsoup4 = "^4.12.2"
+arrow = "^1.2.3"
+plyer = "^2.1.0"
+pyobjus = "^1.2.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
