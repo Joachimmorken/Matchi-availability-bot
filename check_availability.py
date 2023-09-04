@@ -1,21 +1,22 @@
 import datetime  # Import the datetime module
 import time
 
+from facilities import facilities
+
 import requests
 from bs4 import BeautifulSoup
 from plyer import notification
 
 
-def fetch_available_slots():
+def fetch_available_slots(facility):
     # Get today's date in the format YYYY-MM-DD
     todays_date = datetime.date.today().strftime('%Y-%m-%d')
     tomorrows_date = (datetime.date.today() +
                       datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-    url = f"https://www.matchi.se/book/schedule?wl=&facilityId=642&date={todays_date}&sport=1"
-
-    # ... [rest of your code remains unchanged]
-
+    facility_to_check = facilities[facility]
+    url = f"https://www.matchi.se/book/schedule?wl=&facilityId={facility_to_check}&date={todays_date}&sport=1"
+    
     # Fetch the content from the URL
     response = requests.get(url)
     response.raise_for_status()  # Raise an exception for HTTP errors
@@ -51,9 +52,12 @@ def fetch_available_slots():
 
 # Initialize an empty dictionary for the previous state
 previous_slots = {}
+facility = ""
 
 while True:  # Infinite loop to keep the script running
-    current_slots = fetch_available_slots()
+    if len(facility) == 0:
+        facility = input("Pick a facility to observe. Available facilities are: Frogner, Voldsløkka: ").lower()
+    current_slots = fetch_available_slots(facility)
 
     # Compare current_slots with previous_slots to detect changes
     if current_slots != previous_slots:
