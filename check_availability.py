@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tennis Court Availability Monitor for Matchi.se facilities."""
 
+import argparse
 import datetime
 import subprocess
 import time
@@ -20,16 +21,17 @@ console = Console()
 
 
 def send_notification(title, message):
-    """Send a native macOS notification using osascript."""
+    """Send a visual alert popup using osascript."""
     try:
+        # Use display alert instead of notification - more reliable and no permissions needed
         script = f"""
-        display notification "{message}" with title "{title}"
+        display alert "{title}" message "{message}" giving up after 5
         """
         subprocess.run(["osascript", "-e", script], check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Failed to send notification: {e}")
+        print(f"Failed to send alert: {e}")
     except Exception as e:
-        print(f"Error sending notification: {e}")
+        print(f"Error sending alert: {e}")
 
 
 def fetch_available_slots(facility_name, target_date):
@@ -85,24 +87,21 @@ def format_date_header(date):
 
 def get_court_style(court_name, is_new=False, is_removed=False):
     """Get styling for court based on type and status."""
-    # Determine court type and base color
+    # Determine court type and icon
     if "grusbane" in court_name.lower():
-        base_color = "yellow"  # Clay courts in yellow
         icon = "🟡"
     elif "hardcourt" in court_name.lower():
-        base_color = "cyan"  # Hard courts in cyan
         icon = "🔵"
     else:
-        base_color = "white"  # Unknown courts in white
         icon = "⚪"
 
     # Apply status styling
     if is_new:
-        return f"bold bright_green", f"🆕{icon}"
+        return "bold bright_green", f"🆕{icon}"
     elif is_removed:
-        return f"strike dim {base_color}", f"❌{icon}"
+        return "strike dim white", f"❌{icon}"
     else:
-        return base_color, icon
+        return "white", icon
 
 
 def collect_all_slots():
@@ -177,10 +176,13 @@ def display_slots_table(all_slots, previous_slots=None):
             date_header = format_date_header(date)
             slots = facility_data.get(date, {})
 
-            # Get changes for this facility and date
-            new_courts, removed_courts = get_slot_changes(
-                all_slots, previous_slots, facility_name, date
-            )
+            # Get changes for this facility and date (only if we have previous data)
+            if previous_slots:
+                new_courts, removed_courts = get_slot_changes(
+                    all_slots, previous_slots, facility_name, date
+                )
+            else:
+                new_courts, removed_courts = set(), set()
 
             # Create table for this date
             table = Table(
@@ -225,6 +227,9 @@ def display_slots_table(all_slots, previous_slots=None):
 
 def has_changes(current_slots, previous_slots):
     """Check if there are any changes between current and previous slots."""
+    # If previous_slots is empty (first run), don't consider it a change
+    if not previous_slots:
+        return False
     return current_slots != previous_slots
 
 
@@ -232,6 +237,10 @@ def get_changes_summary(current_slots, previous_slots):
     """Get a summary of what changed."""
     changes = []
     dates = get_date_range(2)
+
+    # Don't generate changes if previous_slots is empty (first run)
+    if not previous_slots:
+        return changes
 
     for facility_name in facilities.keys():
         facility_display = facility_name.capitalize()
@@ -241,20 +250,30 @@ def get_changes_summary(current_slots, previous_slots):
 
             if current != previous:
                 date_str = format_date_header(date)
-                if current and not previous:
-                    changes.append(f"New slots at {facility_display} on {date_str}")
-                elif not current and previous:
+
+                # Count actual new courts
+                current_courts = set()
+                previous_courts = set()
+
+                for time_slot, courts in current.items():
+                    for court in courts:
+                        current_courts.add((time_slot, court))
+
+                for time_slot, courts in previous.items():
+                    for court in courts:
+                        previous_courts.add((time_slot, court))
+
+                new_courts = current_courts - previous_courts
+                removed_courts = previous_courts - current_courts
+
+                if new_courts:
                     changes.append(
-                        f"All slots taken at {facility_display} on {date_str}"
+                        f"New courts available at {facility_display} on {date_str}"
                     )
-                elif current != previous:
-                    changes.append(f"Slot changes at {facility_display} on {date_str}")
+                if removed_courts:
+                    changes.append(f"Courts taken at {facility_display} on {date_str}")
 
     return changes
-
-
-# Initialize previous state
-previous_slots = {}
 
 
 def show_legend():
@@ -276,66 +295,190 @@ def show_legend():
         "🆕 New", "[bold bright_green]Newly available[/bold bright_green]"
     )
     legend_table.add_row("❌ Removed", "[strike dim]No longer available[/strike dim]")
+    legend_table.add_row(
+        "🔔 Alerts", "[blue]Visual popups (auto-close after 5s)[/blue]"
+    )
 
     console.print(legend_table)
     console.print("Press Ctrl+C to stop monitoring\n", style="dim")
 
 
-show_legend()
+def test_notifications():
+    """Test the alert system to ensure it's working."""
+    console.print("🔔 Testing alert system...\n", style="bold blue")
 
-while True:  # Infinite loop to keep the script running
+    console.print(
+        "💡 This system uses visual popup alerts instead of notifications.",
+        style="blue",
+    )
+    console.print(
+        "Alerts appear as dialogs and automatically disappear after 5 seconds.",
+        style="blue",
+    )
+    console.print("No special permissions required!\n", style="green")
+
+    # Ask for confirmation before proceeding
+    console.print(
+        "Press Enter to continue with alert test, or Ctrl+C to exit...",
+        style="dim",
+    )
     try:
-        current_slots = collect_all_slots()
+        input()
+    except KeyboardInterrupt:
+        console.print("\n❌ Test cancelled.", style="yellow")
+        return
 
-        # Check for changes
-        if has_changes(current_slots, previous_slots):
-            changes = get_changes_summary(current_slots, previous_slots)
+    test_messages = [
+        (
+            "🎾 Tennis Alert Test",
+            "If you see this popup, alerts are working perfectly!",
+        ),
+        (
+            "🏟️ System Check",
+            "Tennis court monitor will show popups when courts become available.",
+        ),
+        ("✅ Test Complete", "Alert system is functioning correctly."),
+    ]
 
-            # Send notification
-            if changes:
-                summary = "; ".join(
-                    changes[:3]
-                )  # Limit to first 3 changes for notification
-                if len(changes) > 3:
-                    summary += f" and {len(changes) - 3} more..."
+    for i, (title, message) in enumerate(test_messages, 1):
+        console.print(f"Sending test alert {i}/3...", style="dim")
+        send_notification(title, message)
 
-                send_notification(
-                    title="🎾 Tennis Courts Updated!",
-                    message=summary,
+        if i < len(test_messages):
+            console.print("Waiting 3 seconds before next test...", style="dim")
+            time.sleep(3)
+
+    console.print("\n🔔 Alert test complete!", style="bold green")
+    console.print(
+        "✅ If you saw 3 popup dialogs: System is working correctly!",
+        style="bold green",
+    )
+    console.print(
+        "❌ If you didn't see any popups: Check if Terminal has permission to control your computer",
+        style="yellow",
+    )
+    console.print(
+        "💡 Alerts appear as popup dialogs and disappear automatically after 5 seconds",
+        style="dim blue",
+    )
+
+
+def run_monitor():
+    """Run the main court availability monitoring loop."""
+    # Initialize previous state
+    previous_slots = {}
+
+    show_legend()
+
+    while True:  # Infinite loop to keep the script running
+        try:
+            current_slots = collect_all_slots()
+
+            # Check for changes (only after first run)
+            changes_detected = has_changes(current_slots, previous_slots)
+            if changes_detected:
+                changes = get_changes_summary(current_slots, previous_slots)
+
+                # Send notification
+                if changes:
+                    summary = "; ".join(
+                        changes[:3]
+                    )  # Limit to first 3 changes for notification
+                    if len(changes) > 3:
+                        summary += f" and {len(changes) - 3} more..."
+
+                    send_notification(
+                        title="🎾 Tennis Courts Updated!",
+                        message=summary,
+                    )
+
+                console.print("\n🔔 Changes detected!", style="bold green")
+                if changes:
+                    for change in changes:
+                        console.print(f"   • {change}", style="green")
+            elif previous_slots:  # Only show "no changes" if this isn't the first run
+                console.print(
+                    "\n✓ No changes detected. Courts status unchanged.",
+                    style="dim green",
                 )
 
-            console.print("\n🔔 Changes detected!", style="bold green")
-            if changes:
-                for change in changes:
-                    console.print(f"   • {change}", style="green")
-        else:
-            console.print(
-                "\n✓ No changes detected. Courts status unchanged.", style="dim green"
+            # Always display current state (with highlighting if there were changes)
+            display_slots_table(
+                current_slots,
+                previous_slots if changes_detected else {},
             )
 
-        # Always display current state (with highlighting if there were changes)
-        display_slots_table(
-            current_slots,
-            previous_slots if has_changes(current_slots, previous_slots) else None,
-        )
+            # Update previous state
+            previous_slots = current_slots.copy()
 
-        # Update previous state
-        previous_slots = current_slots.copy()
+            next_check_time = (
+                datetime.datetime.now() + datetime.timedelta(minutes=5)
+            ).strftime("%H:%M:%S")
+            console.print(
+                f"\n⏰ Next check in 5 minutes... (at {next_check_time})",
+                style="dim blue",
+            )
+            time.sleep(300)  # Sleep for 5 minutes
 
-        next_check_time = (
-            datetime.datetime.now() + datetime.timedelta(minutes=5)
-        ).strftime("%H:%M:%S")
-        console.print(
-            f"\n⏰ Next check in 5 minutes... (at {next_check_time})", style="dim blue"
-        )
-        time.sleep(300)  # Sleep for 5 minutes
+        except KeyboardInterrupt:
+            console.print(
+                "\n\n👋 Monitoring stopped. Have a great game!", style="bold blue"
+            )
+            break
+        except Exception as e:
+            console.print(f"\n❌ Error occurred: {e}", style="red")
+            console.print("Retrying in 1 minute...", style="yellow")
+            time.sleep(60)
 
-    except KeyboardInterrupt:
-        console.print(
-            "\n\n👋 Monitoring stopped. Have a great game!", style="bold blue"
-        )
-        break
-    except Exception as e:
-        console.print(f"\n❌ Error occurred: {e}", style="red")
-        console.print("Retrying in 1 minute...", style="yellow")
-        time.sleep(60)
+
+def main():
+    """Main entry point with command-line argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="🎾 Tennis Court Availability Monitor for Matchi.se",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                     Start monitoring (default)
+  %(prog)s monitor             Start monitoring
+  %(prog)s test-notifications  Test alert system
+  %(prog)s --help              Show this help message
+
+For more information, visit: https://github.com/your-username/tennis-bot
+        """.strip(),
+    )
+
+    subparsers = parser.add_subparsers(
+        dest="command", help="Available commands", metavar="COMMAND"
+    )
+
+    # Monitor command (default)
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Start monitoring tennis court availability (default)",
+        description="Monitor tennis courts and send notifications when slots become available",
+    )
+
+    # Test notifications command
+    test_parser = subparsers.add_parser(
+        "test-notifications",
+        help="Test the alert system",
+        description="Send test popup alerts to verify the system is working",
+    )
+
+    args = parser.parse_args()
+
+    # Default to monitor if no command specified
+    if args.command is None:
+        args.command = "monitor"
+
+    # Route to appropriate function
+    if args.command == "monitor":
+        run_monitor()
+    elif args.command == "test-notifications":
+        test_notifications()
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

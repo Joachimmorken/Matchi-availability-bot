@@ -1,5 +1,11 @@
 #!/bin/bash
 # Tennis Court Availability Monitor - Command Line Launcher
+# 
+# Usage Examples:
+#   tennis-searcher                     # Start monitoring (default)
+#   tennis-searcher monitor             # Start monitoring (explicit)
+#   tennis-searcher test-notifications  # Test notification system
+#   tennis-searcher --help              # Show help
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
