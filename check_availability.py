@@ -5,7 +5,6 @@ import argparse
 import datetime
 import subprocess
 import time
-from collections import defaultdict
 
 import requests
 from bs4 import BeautifulSoup
@@ -23,7 +22,8 @@ console = Console()
 def send_notification(title, message):
     """Send a visual alert popup using osascript."""
     try:
-        # Use display alert instead of notification - more reliable and no permissions needed
+        # Use display alert instead of notification - more reliable
+        # and no permissions needed
         script = f"""
         display alert "{title}" message "{message}" giving up after 5
         """
@@ -38,10 +38,16 @@ def fetch_available_slots(facility_name, target_date):
     """Fetch available slots for a specific facility and date."""
     facility_id = facilities[facility_name.lower()]
     date_str = target_date.strftime("%Y-%m-%d")
-    url = f"https://www.matchi.se/book/schedule?wl=&facilityId={facility_id}&date={date_str}&sport=1"
+    base_url = "https://www.matchi.se/book/schedule"
+    params = {
+        "wl": "",
+        "facilityId": facility_id,
+        "date": date_str,
+        "sport": "1",
+    }
 
     # Fetch the content from the URL
-    response = requests.get(url)
+    response = requests.get(base_url, params=params)
     response.raise_for_status()  # Raise an exception for HTTP errors
 
     # Parse the content using BeautifulSoup
@@ -69,10 +75,69 @@ def fetch_available_slots(facility_name, target_date):
     return time_slot_dict
 
 
-def get_date_range(days_ahead=2):
-    """Get a list of dates from today to days_ahead from today."""
-    today = datetime.date.today()
-    return [today + datetime.timedelta(days=i) for i in range(days_ahead + 1)]
+def get_date_range(days_ahead: int = 2, start_date: datetime.date | None = None):
+    """Get a list of dates from start_date to start_date + days_ahead (inclusive).
+
+    If start_date is None, uses today.
+    """
+    if days_ahead < 0:
+        raise ValueError("days_ahead must be >= 0")
+
+    base_date = start_date or datetime.date.today()
+    return [base_date + datetime.timedelta(days=i) for i in range(days_ahead + 1)]
+
+
+def parse_dates_list(dates_csv: str) -> list[datetime.date]:
+    """Parse a comma-separated list of YYYY-MM-DD into sorted unique dates."""
+    parsed: set[datetime.date] = set()
+    for part in dates_csv.split(","):
+        text = part.strip()
+        if not text:
+            continue
+        try:
+            year, month, day = map(int, text.split("-"))
+            parsed.add(datetime.date(year, month, day))
+        except Exception as exc:
+            raise argparse.ArgumentTypeError(
+                f"Invalid date '{text}'. Use YYYY-MM-DD."
+            ) from exc
+    if not parsed:
+        raise argparse.ArgumentTypeError("No valid dates provided")
+    return sorted(parsed)
+
+
+def _parse_hhmm(text: str) -> datetime.time:
+    """Parse time strings like '17', '17:00', '08:30' into datetime.time."""
+    text = text.strip()
+    if not text:
+        raise argparse.ArgumentTypeError("Empty time component")
+    if ":" in text:
+        hour_str, minute_str = text.split(":", 1)
+        hour = int(hour_str)
+        minute = int(minute_str)
+    else:
+        hour = int(text)
+        minute = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise argparse.ArgumentTypeError("Time must be between 00:00 and 23:59")
+    return datetime.time(hour=hour, minute=minute)
+
+
+def parse_between_time_range(arg: str) -> tuple[datetime.time, datetime.time]:
+    """Parse --between ranges like '17-22' or '17:30-22:00'."""
+    if not arg:
+        raise argparse.ArgumentTypeError("--between requires a value like 17-22")
+    raw = arg.replace(" ", "")
+    if "-" not in raw:
+        raise argparse.ArgumentTypeError(
+            "--between must be in the form HH:MM-HH:MM or HH-HH"
+        )
+    start_str, end_str = raw.split("-", 1)
+    start_time = _parse_hhmm(start_str)
+    end_time = _parse_hhmm(end_str)
+    if end_time <= start_time:
+        raise argparse.ArgumentTypeError("End time must be after start time")
+    return start_time, end_time
 
 
 def format_date_header(date):
@@ -104,10 +169,9 @@ def get_court_style(court_name, is_new=False, is_removed=False):
         return "white", icon
 
 
-def collect_all_slots():
+def collect_all_slots(dates: list[datetime.date]):
     """Collect slots for all facilities and dates."""
     all_slots = {}
-    dates = get_date_range(2)  # Today + 2 days
 
     console.print("\n🎾 Checking tennis court availability...\n", style="bold blue")
 
@@ -125,7 +189,8 @@ def collect_all_slots():
                 )
             except Exception as e:
                 console.print(
-                    f"✗ Error checking {facility_display_name} for {format_date_header(date)}: {e}",
+                    "✗ Error checking "
+                    f"{facility_display_name} for {format_date_header(date)}: {e}",
                     style="red",
                 )
                 all_slots[facility_name][date] = {}
@@ -156,12 +221,50 @@ def get_slot_changes(current_slots, previous_slots, facility_name, date):
     return new_courts, removed_courts
 
 
-def display_slots_table(all_slots, previous_slots=None):
-    """Display slots in a beautiful colored tabular format with highlighting."""
-    dates = get_date_range(2)
+def _filter_slots_by_between(
+    slots: dict[str, list[str]], between: tuple[datetime.time, datetime.time] | None
+) -> dict[str, list[str]]:
+    """Filter a single day's time_slot -> courts mapping by a time range.
 
+    A slot is included if its start time is within [between_start, between_end).
+    """
+    if not between:
+        return slots
+
+    start_time, end_time = between
+    filtered: dict[str, list[str]] = {}
+
+    for time_slot_label, courts in slots.items():
+        label = time_slot_label.replace(" ", "")
+        # Accept formats like '17:00-18:00' or '17-18'
+        if "-" in label:
+            slot_start_str, _slot_end_str = label.split("-", 1)
+        else:
+            slot_start_str = label
+        try:
+            slot_start = _parse_hhmm(slot_start_str)
+        except argparse.ArgumentTypeError:
+            # If we can't parse, keep original behavior: include it
+            filtered[time_slot_label] = courts
+            continue
+
+        if start_time <= slot_start < end_time:
+            filtered[time_slot_label] = courts
+
+    return filtered
+
+
+def display_slots_table(
+    all_slots,
+    previous_slots=None,
+    dates: list[datetime.date] | None = None,
+):
+    """Display slots in a beautiful colored tabular format with highlighting."""
     if previous_slots is None:
         previous_slots = {}
+
+    if dates is None:
+        dates = get_date_range(2)
 
     for facility_name, facility_data in all_slots.items():
         facility_display_name = facility_name.capitalize()
@@ -233,10 +336,15 @@ def has_changes(current_slots, previous_slots):
     return current_slots != previous_slots
 
 
-def get_changes_summary(current_slots, previous_slots):
+def get_changes_summary(
+    current_slots,
+    previous_slots,
+    dates: list[datetime.date] | None = None,
+):
     """Get a summary of what changed."""
     changes = []
-    dates = get_date_range(2)
+    if dates is None:
+        dates = get_date_range(2)
 
     # Don't generate changes if previous_slots is empty (first run)
     if not previous_slots:
@@ -276,15 +384,37 @@ def get_changes_summary(current_slots, previous_slots):
     return changes
 
 
-def show_legend():
+def show_legend(
+    dates: list[datetime.date],
+    between: tuple[datetime.time, datetime.time] | None = None,
+):
     """Display the legend for court types and status indicators."""
     console.print("\n🎾 Tennis Court Availability Monitor", style="bold blue")
+    if not dates:
+        date_summary = "No dates"
+    elif len(dates) <= 5:
+        date_summary = ", ".join(d.strftime("%Y-%m-%d") for d in dates)
+    else:
+        start_str = dates[0].strftime("%Y-%m-%d")
+        end_str = dates[-1].strftime("%Y-%m-%d")
+        date_summary = f"{start_str} … {end_str} ({len(dates)} dates)"
     console.print(
-        "Monitoring both Frogner and Voldsløkka for the next 3 days", style="blue"
+        f"Monitoring both Frogner and Voldsløkka for: {date_summary}",
+        style="blue",
     )
+    if between:
+        start_hhmm = between[0].strftime("%H:%M")
+        end_hhmm = between[1].strftime("%H:%M")
+        console.print(
+            f"Time filter: {start_hhmm}–{end_hhmm}",
+            style="blue",
+        )
 
     legend_table = Table(
-        title="Legend", box=box.SIMPLE, show_header=False, title_style="bold yellow"
+        title="Legend",
+        box=box.SIMPLE,
+        show_header=False,
+        title_style="bold yellow",
     )
     legend_table.add_column("Symbol", style="bold")
     legend_table.add_column("Meaning")
@@ -354,7 +484,8 @@ def test_notifications():
         style="bold green",
     )
     console.print(
-        "❌ If you didn't see any popups: Check if Terminal has permission to control your computer",
+        "❌ If you didn't see any popups: Check if Terminal has permission "
+        "to control your computer",
         style="yellow",
     )
     console.print(
@@ -363,21 +494,32 @@ def test_notifications():
     )
 
 
-def run_monitor():
+def run_monitor(
+    dates: list[datetime.date],
+    between: tuple[datetime.time, datetime.time] | None = None,
+):
     """Run the main court availability monitoring loop."""
     # Initialize previous state
     previous_slots = {}
 
-    show_legend()
+    show_legend(dates, between)
 
     while True:  # Infinite loop to keep the script running
         try:
-            current_slots = collect_all_slots()
+            current_slots = collect_all_slots(dates)
+            # Apply time filtering (if any)
+            if between:
+                for facility_name in list(current_slots.keys()):
+                    for date in list(current_slots[facility_name].keys()):
+                        slots = current_slots[facility_name][date]
+                        current_slots[facility_name][date] = _filter_slots_by_between(
+                            slots, between
+                        )
 
             # Check for changes (only after first run)
             changes_detected = has_changes(current_slots, previous_slots)
             if changes_detected:
-                changes = get_changes_summary(current_slots, previous_slots)
+                changes = get_changes_summary(current_slots, previous_slots, dates)
 
                 # Send notification
                 if changes:
@@ -406,6 +548,7 @@ def run_monitor():
             display_slots_table(
                 current_slots,
                 previous_slots if changes_detected else {},
+                dates,
             )
 
             # Update previous state
@@ -455,14 +598,55 @@ For more information, visit: https://github.com/your-username/tennis-bot
     monitor_parser = subparsers.add_parser(
         "monitor",
         help="Start monitoring tennis court availability (default)",
-        description="Monitor tennis courts and send notifications when slots become available",
+        description=(
+            "Monitor tennis courts and send notifications when slots become "
+            "available"
+        ),
     )
 
     # Test notifications command
-    test_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "test-notifications",
         help="Test the alert system",
         description="Send test popup alerts to verify the system is working",
+    )
+
+    # Monitoring options (apply to monitor command)
+    monitor_parser.add_argument(
+        "--days-ahead",
+        type=int,
+        default=2,
+        help=(
+            "Number of days ahead to include (inclusive). 0 means only today. "
+            "Default: 2"
+        ),
+    )
+    monitor_parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Start date (defaults to today). Used with --days-ahead.",
+    )
+    monitor_parser.add_argument(
+        "--dates",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD,YYYY-MM-DD",
+        help=(
+            "Comma-separated specific dates to monitor. Overrides "
+            "--start-date/--days-ahead if provided."
+        ),
+    )
+    monitor_parser.add_argument(
+        "--between",
+        type=str,
+        default=None,
+        metavar="START-END",
+        help=(
+            "Only include time slots whose start is within the interval. "
+            "Formats: HH-HH or HH:MM-HH:MM (e.g., 17-22 or 17:30-22:00)."
+        ),
     )
 
     args = parser.parse_args()
@@ -473,7 +657,32 @@ For more information, visit: https://github.com/your-username/tennis-bot
 
     # Route to appropriate function
     if args.command == "monitor":
-        run_monitor()
+        # Build dates to monitor
+        dates: list[datetime.date]
+        if getattr(args, "dates", None):
+            dates = parse_dates_list(args.dates)
+        else:
+            start_date = None
+            if getattr(args, "start_date", None):
+                try:
+                    y, m, d = map(int, args.start_date.split("-"))
+                    start_date = datetime.date(y, m, d)
+                except Exception as exc:
+                    raise SystemExit(
+                        f"Invalid --start-date '{args.start_date}'. Use YYYY-MM-DD."
+                    ) from exc
+            days_ahead = getattr(args, "days_ahead", 2)
+            dates = get_date_range(days_ahead=days_ahead, start_date=start_date)
+
+        # Build optional time filter
+        between = None
+        if getattr(args, "between", None):
+            try:
+                between = parse_between_time_range(args.between)
+            except argparse.ArgumentTypeError as exc:
+                raise SystemExit(str(exc)) from exc
+
+        run_monitor(dates, between)
     elif args.command == "test-notifications":
         test_notifications()
     else:
