@@ -5,6 +5,7 @@ import argparse
 import datetime
 import subprocess
 import time
+import platform
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,14 +21,34 @@ console = Console()
 
 
 def send_notification(title, message):
-    """Send a visual alert popup using osascript."""
+    """Send a visual alert popup (Windows/macOS)."""
     try:
-        # Use display alert instead of notification - more reliable
-        # and no permissions needed
-        script = f"""
-        display alert "{title}" message "{message}" giving up after 5
-        """
-        subprocess.run(["osascript", "-e", script], check=True)
+        system = platform.system()
+
+        if system == "Windows":
+            # Use Windows toast notifications
+            try:
+                from win10toast import ToastNotifier
+
+                toaster = ToastNotifier()
+                # duration is seconds; threaded avoids blocking
+                toaster.show_toast(title, message, duration=5, threaded=True)
+                return
+            except Exception as e:
+                print(f"Failed to send Windows toast: {e}")
+                # Fall through to console output
+
+        elif system == "Darwin":
+            # Use macOS AppleScript alert (no special permissions)
+            script = f"""
+            display alert "{title}" message "{message}" giving up after 5
+            """
+            subprocess.run(["osascript", "-e", script], check=True)
+            return
+
+        # For unsupported platforms or if notification fails, just print
+        print(f"[ALERT] {title}: {message}")
+
     except subprocess.CalledProcessError as e:
         print(f"Failed to send alert: {e}")
     except Exception as e:

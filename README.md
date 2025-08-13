@@ -12,8 +12,8 @@ The Matchi Availability Bot is a Python application designed to check and notify
 
 ## Pre-requisites
 
-- Python 3.x
-- Poetry (for dependency management)
+- Windows 10/11 or macOS
+- No global Python required if you use `uv` (recommended)
 
 ## Installation
 
@@ -25,21 +25,68 @@ First, clone the repository to your local machine:
 git clone <repository_url>
 ```
 
-### Install Dependencies
+### Install with uv (recommended)
 
-Navigate to the project folder and install the required dependencies using Poetry:
+uv will install a local Python and create a virtual environment automatically.
 
-```bash
+```powershell
+# 1) Install uv (once)
+powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2) Clone and enter the repo
+git clone <repository_url>
 cd Matchi-availability-bot
-poetry install
+
+# 3) One-off run (ephemeral env)
+uv run --python 3.11 --with requests --with beautifulsoup4 --with arrow --with tabulate --with rich --with win10toast python check_availability.py monitor
+
+# Or create a reusable venv
+uv python install 3.11
+uv venv --python 3.11 .venv
+./.venv/Scripts/Activate.ps1
+uv pip install -r requirements.txt
 ```
 
 ## Usage
 
-To run the script, use the following command:
+### Run the monitor
+```powershell
+python check_availability.py monitor --between 17-22 --days-ahead 2
+```
 
-```bash
-poetry run python check_availability.py
+Examples:
+```powershell
+# Only today, 17:00–22:00
+python check_availability.py monitor --days-ahead 0 --between 17-22
+
+# Specific dates
+python check_availability.py monitor --dates 2025-08-20,2025-08-21
+```
+
+### Test notifications
+```powershell
+python check_availability.py test-notifications
+```
+
+Notes:
+- On Windows, notifications use `win10toast` to show toast popups.
+- On macOS, notifications use AppleScript alerts via `osascript`.
+- If Focus Assist (Do Not Disturb) is on, toasts may be suppressed.
+
+### Optional: Start automatically at login (Windows)
+Use Task Scheduler → Create Task → Run only when user is logged on.
+
+Program/script:
+```
+C:\Users\<you>\git\Matchi-availability-bot\.venv\Scripts\python.exe
+```
+Arguments:
+```
+check_availability.py monitor --between 17-22
+```
+Start in:
+```
+C:\Users\<you>\git\Matchi-availability-bot
 ```
 
 ## License
