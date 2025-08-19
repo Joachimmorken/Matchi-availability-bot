@@ -547,6 +547,7 @@ def test_email():
 def run_monitor(
     dates: list[datetime.date],
     between: tuple[datetime.time, datetime.time] | None = None,
+    interval_seconds: int = 300,
 ):
     """Run the main court availability monitoring loop."""
     # Initialize previous state
@@ -604,14 +605,25 @@ def run_monitor(
             # Update previous state
             previous_slots = current_slots.copy()
 
+            # Normalize interval
+            if interval_seconds <= 0:
+                interval_seconds = 300
+
             next_check_time = (
-                datetime.datetime.now() + datetime.timedelta(minutes=5)
+                datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
             ).strftime("%H:%M:%S")
+
+            if interval_seconds % 60 == 0:
+                mins = interval_seconds // 60
+                interval_label = f"{mins} minute{'s' if mins != 1 else ''}"
+            else:
+                interval_label = f"{interval_seconds} seconds"
+
             console.print(
-                f"\n⏰ Next check in 5 minutes... (at {next_check_time})",
+                f"\n⏰ Next check in {interval_label}... (at {next_check_time})",
                 style="dim blue",
             )
-            time.sleep(300)  # Sleep for 5 minutes
+            time.sleep(interval_seconds)
 
         except KeyboardInterrupt:
             console.print(
@@ -707,6 +719,16 @@ For more information, visit: https://github.com/your-username/tennis-bot
             "Formats: HH-HH or HH:MM-HH:MM (e.g., 17-22 or 17:30-22:00)."
         ),
     )
+    monitor_parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help=(
+            "How often to re-check availability in seconds. "
+            "Default: 300 (5 minutes)"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -741,7 +763,8 @@ For more information, visit: https://github.com/your-username/tennis-bot
             except argparse.ArgumentTypeError as exc:
                 raise SystemExit(str(exc)) from exc
 
-        run_monitor(dates, between)
+        interval_seconds = getattr(args, "interval_seconds", 300)
+        run_monitor(dates, between, interval_seconds)
     elif args.command == "test-notifications":
         test_notifications()
     elif args.command == "test-email":
