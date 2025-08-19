@@ -3,6 +3,9 @@
 
 import argparse
 import datetime
+import os
+import csv
+import random
 import subprocess
 import time
 import platform
@@ -21,8 +24,12 @@ from email_notifications import send_email_notification as send_email
 console = Console()
 
 
-def send_notification(title, message, also_email: bool = False):
-    """Send a visual alert popup (Windows/macOS). Optionally send email."""
+def send_notification(title, message, also_email: bool = False, email_body: str | None = None):
+    """Send a visual alert popup (Windows/macOS). Optionally send email.
+
+    If also_email is True and email_body is provided, the email will use email_body;
+    otherwise the same message text is used.
+    """
     try:
         system = platform.system()
 
@@ -53,7 +60,7 @@ def send_notification(title, message, also_email: bool = False):
         # Optionally send email (best-effort)
         if also_email:
             try:
-                send_email(subject=title, body=message)
+                send_email(subject=title, body=(email_body or message))
             except Exception:
                 pass
 
@@ -413,6 +420,80 @@ def get_changes_summary(
     return changes
 
 
+def _build_schedule_url(facility_id: int, date_obj: datetime.date) -> str:
+    """Build a direct schedule link for a facility and date (tennis)."""
+    date_str = date_obj.strftime("%Y-%m-%d")
+    return (
+        f"https://www.matchi.se/book/schedule?facilityId={facility_id}"
+        f"&date={date_str}&sport=1"
+    )
+
+
+def _build_new_slots_email_body(
+    current_slots,
+    previous_slots,
+    dates: list[datetime.date],
+) -> str:
+    """Create a detailed email body listing new courts by facility/date with links."""
+    lines: list[str] = []
+    lines.append("New tennis courts are available:\n")
+
+    for facility_key in facilities.keys():
+        facility_display = facility_key.capitalize()
+        facility_id = facilities[facility_key]
+
+        for date_obj in dates:
+            new_courts, _removed = get_slot_changes(
+                current_slots, previous_slots, facility_key, date_obj
+            )
+            if not new_courts:
+                continue
+
+            # Group new courts by time slot
+            time_to_courts: dict[str, list[str]] = {}
+            for time_slot, court in sorted(new_courts):
+                time_to_courts.setdefault(time_slot, []).append(court)
+
+            date_str = date_obj.strftime("%Y-%m-%d")
+            lines.append(f"{facility_display} — {date_str}")
+            for time_slot, courts in time_to_courts.items():
+                courts_csv = ", ".join(courts)
+                lines.append(f"  - {time_slot}: {courts_csv}")
+
+            link = _build_schedule_url(facility_id, date_obj)
+            lines.append(f"  Link: {link}\n")
+
+    # Append a random quote if available
+    quote = _get_random_quote()
+    if quote:
+        lines.append("\nQuote: " + quote)
+
+    return "\n".join(lines).strip()
+
+
+def _get_random_quote() -> str | None:
+    """Pick a random quote from quotes.csv if present."""
+    try:
+        base_dir = os.path.dirname(__file__)
+        path = os.path.join(base_dir, "quotes.csv")
+        if not os.path.isfile(path):
+            return None
+        quotes: list[str] = []
+        with open(path, "r", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            for row in reader:
+                if not row:
+                    continue
+                # Support either [index, quote] or [quote]
+                text = row[1].strip() if len(row) >= 2 else row[0].strip()
+                if text:
+                    quotes.append(text)
+        if not quotes:
+            return None
+        return random.choice(quotes)
+    except Exception:
+        return None
+
 def show_legend(
     dates: list[datetime.date],
     between: tuple[datetime.time, datetime.time] | None = None,
@@ -579,10 +660,17 @@ def run_monitor(
                     if len(new_changes) > 3:
                         summary += f" and {len(new_changes) - 3} more..."
 
+                    email_body = _build_new_slots_email_body(
+                        current_slots=current_slots,
+                        previous_slots=previous_slots,
+                        dates=dates,
+                    )
+
                     send_notification(
                         title="🎾 New Tennis Courts Available!",
                         message=summary,
                         also_email=True,
+                        email_body=email_body,
                     )
 
                 console.print("\n🔔 Changes detected!", style="bold green")
