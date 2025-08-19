@@ -9,6 +9,7 @@ The Matchi Availability Bot is a Python application designed to check and notify
 
 - Fetches available slots for a given facility and date from Matchi's website.
 - Sends desktop notifications for available slots.
+- Sends email only when new slots appear (optional via `.env`).
 
 ## Pre-requisites
 
@@ -72,6 +73,29 @@ Notes:
 - On Windows, notifications use `win10toast` to show toast popups.
 - On macOS, notifications use AppleScript alerts via `osascript`.
 - If Focus Assist (Do Not Disturb) is on, toasts may be suppressed.
+
+### Configure email (.env)
+Create a `.env` file in the project root (or set these as environment variables):
+```bash
+EMAIL_ENABLED=1
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SSL=0
+SMTP_USER=your@gmail.com
+SMTP_PASS=your_app_password
+EMAIL_FROM=your@gmail.com
+EMAIL_TO=first@example.com,second@example.com
+```
+Notes:
+- `EMAIL_ENABLED` controls whether emails send.
+- Emails are sent only when new courts become available (not for removals).
+- For Gmail/Yahoo, use app passwords.
+
+### Test email
+Ensure your `.env` (or environment) contains the SMTP settings (`EMAIL_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SSL`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `EMAIL_TO`), then run:
+```powershell
+python check_availability.py test-email
+```
 
 ### Optional: Start automatically at login (Windows)
 Use Task Scheduler → Create Task → Run only when user is logged on.

@@ -15,13 +15,14 @@ from rich.text import Text
 from rich import box
 
 from facilities import facilities
+from email_notifications import send_email_notification as send_email
 
 # Initialize rich console
 console = Console()
 
 
-def send_notification(title, message):
-    """Send a visual alert popup (Windows/macOS)."""
+def send_notification(title, message, also_email: bool = False):
+    """Send a visual alert popup (Windows/macOS). Optionally send email."""
     try:
         system = platform.system()
 
@@ -48,6 +49,13 @@ def send_notification(title, message):
 
         # For unsupported platforms or if notification fails, just print
         print(f"[ALERT] {title}: {message}")
+
+        # Optionally send email (best-effort)
+        if also_email:
+            try:
+                send_email(subject=title, body=message)
+            except Exception:
+                pass
 
     except subprocess.CalledProcessError as e:
         print(f"Failed to send alert: {e}")
@@ -515,6 +523,27 @@ def test_notifications():
     )
 
 
+def test_email():
+    """Send a test email using SMTP configuration from environment variables."""
+    console.print("\n📧 Sending test email...", style="bold blue")
+    subject = "📧 Email Test: Matchi Availability Bot"
+    body = (
+        "If you received this message, your SMTP configuration works.\n\n"
+        "This is an automated test message from Matchi Availability Bot."
+    )
+    try:
+        ok = send_email(subject=subject, body=body)
+        if ok:
+            console.print("✅ Test email sent successfully.", style="bold green")
+        else:
+            console.print(
+                "❌ Test email did not send. Check EMAIL_* and SMTP_* env vars.",
+                style="bold red",
+            )
+    except Exception as exc:
+        console.print(f"❌ Error sending test email: {exc}", style="bold red")
+
+
 def run_monitor(
     dates: list[datetime.date],
     between: tuple[datetime.time, datetime.time] | None = None,
@@ -542,17 +571,17 @@ def run_monitor(
             if changes_detected:
                 changes = get_changes_summary(current_slots, previous_slots, dates)
 
-                # Send notification
-                if changes:
-                    summary = "; ".join(
-                        changes[:3]
-                    )  # Limit to first 3 changes for notification
-                    if len(changes) > 3:
-                        summary += f" and {len(changes) - 3} more..."
+                # Only notify for NEW courts (desktop + email)
+                new_changes = [c for c in changes if "New courts available" in c]
+                if new_changes:
+                    summary = "; ".join(new_changes[:3])
+                    if len(new_changes) > 3:
+                        summary += f" and {len(new_changes) - 3} more..."
 
                     send_notification(
-                        title="🎾 Tennis Courts Updated!",
+                        title="🎾 New Tennis Courts Available!",
                         message=summary,
+                        also_email=True,
                     )
 
                 console.print("\n🔔 Changes detected!", style="bold green")
@@ -632,6 +661,15 @@ For more information, visit: https://github.com/your-username/tennis-bot
         description="Send test popup alerts to verify the system is working",
     )
 
+    # Test email command
+    subparsers.add_parser(
+        "test-email",
+        help="Send a test email using SMTP configuration",
+        description=(
+            "Uses EMAIL_ENABLED/SMTP_* env vars to send a simple test email"
+        ),
+    )
+
     # Monitoring options (apply to monitor command)
     monitor_parser.add_argument(
         "--days-ahead",
@@ -706,6 +744,8 @@ For more information, visit: https://github.com/your-username/tennis-bot
         run_monitor(dates, between)
     elif args.command == "test-notifications":
         test_notifications()
+    elif args.command == "test-email":
+        test_email()
     else:
         parser.print_help()
 
