@@ -763,7 +763,7 @@ For more information, visit: https://github.com/your-username/tennis-bot
             except argparse.ArgumentTypeError as exc:
                 raise SystemExit(str(exc)) from exc
 
-        interval_seconds = getattr(args, "interval_seconds", 300)
+        interval_seconds = args.interval_seconds
         run_monitor(dates, between, interval_seconds)
     elif args.command == "test-notifications":
         test_notifications()
