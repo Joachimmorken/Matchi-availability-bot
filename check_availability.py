@@ -608,10 +608,15 @@ def test_email():
     """Send a test email using SMTP configuration from environment variables."""
     console.print("\n📧 Sending test email...", style="bold blue")
     subject = "📧 Email Test: Matchi Availability Bot"
-    body = (
-        "If you received this message, your SMTP configuration works.\n\n"
-        "This is an automated test message from Matchi Availability Bot."
-    )
+    body_lines = [
+        "If you received this message, your SMTP configuration works.",
+        "",
+        "This is an automated test message from Matchi Availability Bot.",
+    ]
+    quote = _get_random_quote()
+    if quote:
+        body_lines.extend(["", f"Quote: {quote}"])
+    body = "\n".join(body_lines)
     try:
         ok = send_email(subject=subject, body=body)
         if ok:
