@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}New Tennis Courts Available - Matchi Bot{% endblock %}
+
+{% block header_title %}🎾 New Tennis Courts Available!{% endblock %}
+{% block header_subtitle %}Fresh court availability just detected{% endblock %}
+
+{% block content %}
+<div class="alert alert-success">
+    <strong>🎉 Great news!</strong> We found {{ total_new_courts }} new tennis court{{ 's' if total_new_courts != 1 else '' }} available for booking.
+</div>
+
+<h2>📅 Available Courts by Facility</h2>
+
+{% for facility_data in facilities %}
+<div class="court-card">
+    <div class="facility-name">{{ facility_data.name }}</div>
+    
+    {% for date_data in facility_data.dates %}
+    <div class="date-header">📆 {{ date_data.date.strftime('%A, %B %d, %Y') }}</div>
+    
+    {% for time_slot, courts in date_data.time_slots.items() %}
+    <div style="margin-bottom: 12px;">
+        <span class="time-slot">⏰ {{ time_slot }}</span>
+        <div class="courts-list">
+            <strong>Courts:</strong> {{ courts | join(', ') }}
+        </div>
+    </div>
+    {% endfor %}
+    
+    <div class="view-link">
+        <a href="{{ date_data.booking_url }}" class="btn">🔗 Book Courts for {{ date_data.date.strftime('%m/%d') }}</a>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+{% if summary_stats %}
+<h3>📊 Summary</h3>
+<ul>
+    <li><strong>Total facilities with new courts:</strong> {{ summary_stats.facilities_count }}</li>
+    <li><strong>Total dates with availability:</strong> {{ summary_stats.dates_count }}</li>
+    <li><strong>Total new time slots:</strong> {{ summary_stats.time_slots_count }}</li>
+    <li><strong>Most popular time:</strong> {{ summary_stats.most_popular_time or 'N/A' }}</li>
+</ul>
+{% endif %}
+
+<div class="alert alert-info">
+    <strong>💡 Pro tip:</strong> These courts are available now, but they fill up quickly! 
+    Click the booking links above to secure your court time.
+</div>
+{% endblock %}

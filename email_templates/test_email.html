@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Test Email - Matchi Bot{% endblock %}
+
+{% block header_title %}📧 Email Test Successful{% endblock %}
+{% block header_subtitle %}Your SMTP configuration is working perfectly{% endblock %}
+
+{% block content %}
+<div class="alert alert-success">
+    <strong>✅ Success!</strong> If you're reading this, your email configuration is working correctly.
+</div>
+
+<h2>🔧 Configuration Test Results</h2>
+<ul>
+    <li><strong>SMTP Connection:</strong> ✅ Connected successfully</li>
+    <li><strong>Authentication:</strong> ✅ Credentials verified</li>
+    <li><strong>Email Delivery:</strong> ✅ Message delivered</li>
+    <li><strong>HTML Rendering:</strong> ✅ Template system working</li>
+</ul>
+
+<h3>📋 Next Steps</h3>
+<p>Your Matchi Availability Bot is now ready to send beautiful email notifications when new tennis courts become available. The bot will:</p>
+
+<ul>
+    <li>Monitor your selected facilities for court availability</li>
+    <li>Send instant notifications when new courts are found</li>
+    <li>Provide direct booking links for quick reservation</li>
+    <li>Include helpful statistics and tennis quotes</li>
+</ul>
+
+<div class="alert alert-info">
+    <strong>🎾 Happy tennis!</strong> 
+    Your bot is now actively monitoring for court availability. 
+    You'll receive notifications like this one whenever new courts become available.
+</div>
+{% endblock %}
