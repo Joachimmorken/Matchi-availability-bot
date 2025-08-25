@@ -1,458 +1,425 @@
-"""
-Professional Email Notification System for Matchi Availability Bot
-================================================================
-
-This module provides a comprehensive email notification system with:
-- Beautiful HTML email templates using Jinja2
-- CSS inlining for better email client compatibility
-- Email validation and sanitization
-- Robust error handling and logging
-- Support for both HTML and plain text emails
-- Email analytics and tracking
-- Professional email design with responsive layout
-
-Author: GitHub Copilot
-Version: 2.0.0
-"""
-
 import os
 import smtplib
-import logging
 import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr, make_msgid
-import re
+from typing import Dict, Any, Optional, Tuple
 
 try:
     from dotenv import load_dotenv
-except ImportError:
+except Exception:  # pragma: no cover
     load_dotenv = None
 
 try:
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
-except ImportError:
-    raise ImportError(
-        "jinja2 is required for email templates. Install with: pip install jinja2"
-    )
-
-try:
-    from premailer import transform
-except ImportError:
-    raise ImportError(
-        "premailer is required for CSS inlining. Install with: pip install premailer"
-    )
-
-try:
-    from email_validator import validate_email, EmailNotValidError
-except ImportError:
-    validate_email = None
-    EmailNotValidError = Exception
-
-# Configure logging
-logger = logging.getLogger(__name__)
+    from jinja2 import Environment, FileSystemLoader
+    JINJA2_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    JINJA2_AVAILABLE = False
 
 
-class EmailConfig:
-    """Email configuration class with validation and defaults."""
-    
-    def __init__(self):
-        self._load_env()
-        self.enabled = self._is_truthy(os.getenv("EMAIL_ENABLED", "false"))
-        self.smtp_host = os.getenv("SMTP_HOST", "").strip()
-        self.smtp_port = self._parse_port(os.getenv("SMTP_PORT", "587"))
-        self.smtp_ssl = self._is_truthy(os.getenv("SMTP_SSL", "false"))
-        self.smtp_user = os.getenv("SMTP_USER", "").strip()
-        self.smtp_pass = os.getenv("SMTP_PASS", "").strip()
-        self.email_from = os.getenv("EMAIL_FROM", "").strip()
-        self.email_from_name = os.getenv("EMAIL_FROM_NAME", "Matchi Availability Bot").strip()
-        self.email_to = os.getenv("EMAIL_TO", "").strip()
-        self.reply_to = os.getenv("EMAIL_REPLY_TO", "").strip()
-        
-        # Advanced settings
-        self.timeout = int(os.getenv("SMTP_TIMEOUT", "30"))
-        self.use_tls = self._is_truthy(os.getenv("SMTP_USE_TLS", "true"))
-        self.debug = self._is_truthy(os.getenv("EMAIL_DEBUG", "false"))
-        
-    def _load_env(self) -> None:
-        """Load environment variables from .env file if available."""
-        if load_dotenv is not None:
-            try:
-                load_dotenv()
-            except Exception as e:
-                logger.warning(f"Could not load .env file: {e}")
-    
-    def _is_truthy(self, value: Optional[str]) -> bool:
-        """Check if a string value represents a truthy boolean."""
-        if value is None:
-            return False
-        return value.strip().lower() in ("1", "true", "yes", "on", "enabled")
-    
-    def _parse_port(self, port_str: str) -> int:
-        """Parse port number with fallback to default."""
+def _is_truthy(value: str | None) -> bool:
+    """Check if environment variable value represents a truthy value."""
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _load_env() -> None:
+    """Load environment variables from .env if python-dotenv is available."""
+    if load_dotenv is not None:
         try:
-            return int(port_str.strip())
-        except (ValueError, AttributeError):
-            return 587
-    
-    def is_valid(self) -> bool:
-        """Check if email configuration is valid."""
-        required_fields = [
-            self.smtp_host,
-            self.smtp_user, 
-            self.smtp_pass,
-            self.email_from,
-            self.email_to
-        ]
-        return all(field for field in required_fields)
-    
-    def get_recipients(self) -> List[str]:
-        """Parse and validate recipient email addresses."""
-        if not self.email_to:
-            return []
-        
-        recipients = []
-        for addr in self.email_to.split(","):
-            addr = addr.strip()
-            if addr:
-                if validate_email and self._validate_single_email(addr):
-                    recipients.append(addr)
-                elif not validate_email:
-                    # Basic regex validation if email-validator not available
-                    if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', addr):
-                        recipients.append(addr)
-        
-        return recipients
-    
-    def _validate_single_email(self, email: str) -> bool:
-        """Validate a single email address."""
-        try:
-            validate_email(email)
-            return True
-        except EmailNotValidError:
-            logger.warning(f"Invalid email address: {email}")
-            return False
+            load_dotenv()
+        except Exception:
+            # Best-effort; ignore issues loading .env
+            pass
 
 
-class EmailTemplateEngine:
-    """Email template engine using Jinja2 with CSS inlining."""
+def _get_court_type(court_name: str) -> str:
+    """Determine court type from name for styling."""
+    court_lower = court_name.lower()
+    if "grusbane" in court_lower or "clay" in court_lower:
+        return "clay"
+    elif "hardcourt" in court_lower or "hard" in court_lower:
+        return "hard"
+    else:
+        return "standard"
+
+
+def _get_template_environment() -> Optional[Environment]:
+    """Get Jinja2 environment for template rendering."""
+    if not JINJA2_AVAILABLE:
+        return None
     
-    def __init__(self, template_dir: Optional[Path] = None):
-        if template_dir is None:
-            template_dir = Path(__file__).parent / "email_templates"
+    try:
+        # Get templates directory relative to this file
+        current_dir = Path(__file__).parent
+        templates_dir = current_dir / "email_templates"
         
-        self.template_dir = Path(template_dir)
-        if not self.template_dir.exists():
-            raise FileNotFoundError(f"Template directory not found: {self.template_dir}")
-        
-        self.env = Environment(
-            loader=FileSystemLoader(str(self.template_dir)),
-            autoescape=select_autoescape(['html', 'xml']),
-            trim_blocks=True,
-            lstrip_blocks=True
+        if not templates_dir.exists():
+            return None
+            
+        return Environment(
+            loader=FileSystemLoader(str(templates_dir)),
+            autoescape=True
         )
+    except Exception:
+        return None
+
+
+def _render_template(template_name: str, **context) -> Tuple[str, str]:
+    """Render HTML template and create plain text fallback.
+    
+    Returns:
+        Tuple of (html_content, plain_text_content)
+    """
+    env = _get_template_environment()
+    
+    if not env:
+        # Fallback to plain text if Jinja2 not available
+        return _create_fallback_content(**context)
+    
+    try:
+        template = env.get_template(template_name)
         
-        # Add custom filters
-        self.env.filters['datetime'] = self._format_datetime
-        self.env.filters['date'] = self._format_date
-        self.env.filters['time'] = self._format_time
-    
-    def _format_datetime(self, dt: datetime.datetime, format_str: str = '%B %d, %Y at %I:%M %p') -> str:
-        """Format datetime object."""
-        return dt.strftime(format_str)
-    
-    def _format_date(self, date: datetime.date, format_str: str = '%B %d, %Y') -> str:
-        """Format date object."""
-        return date.strftime(format_str)
-    
-    def _format_time(self, time: datetime.time, format_str: str = '%I:%M %p') -> str:
-        """Format time object."""
-        return time.strftime(format_str)
-    
-    def render_template(self, template_name: str, **context) -> str:
-        """Render an HTML template with context."""
-        template = self.env.get_template(template_name)
-        
-        # Add common context variables
-        context.setdefault('current_time', datetime.datetime.now())
+        # Add common context
+        context.update({
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
         
         html_content = template.render(**context)
         
-        # Inline CSS for better email client compatibility
-        try:
-            return transform(html_content, 
-                           keep_style_tags=True,
-                           strip_important=False,
-                           remove_classes=False)
-        except Exception as e:
-            logger.warning(f"CSS inlining failed: {e}. Using original HTML.")
-            return html_content
-    
-    def render_plain_text(self, html_content: str) -> str:
-        """Convert HTML content to plain text fallback."""
-        # Simple HTML to text conversion
-        import re
+        # Create plain text version by stripping HTML-like content
+        plain_text = _html_to_plain_text(html_content, **context)
         
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', html_content)
+        return html_content, plain_text
         
-        # Decode HTML entities
-        import html
-        text = html.unescape(text)
-        
-        # Clean up whitespace
-        text = re.sub(r'\n\s*\n', '\n\n', text)
-        text = re.sub(r' +', ' ', text)
-        
-        return text.strip()
+    except Exception as e:
+        print(f"[EMAIL] Template rendering failed: {e}")
+        return _create_fallback_content(**context)
 
 
-class EmailNotificationSystem:
-    """Professional email notification system with templates and analytics."""
+def _html_to_plain_text(html_content: str, **context) -> str:
+    """Convert HTML email to plain text fallback."""
+    # Simple plain text conversion - in production you might use html2text
+    lines = []
     
-    def __init__(self, config: Optional[EmailConfig] = None):
-        self.config = config or EmailConfig()
-        self.template_engine = EmailTemplateEngine()
-        self._setup_logging()
-    
-    def _setup_logging(self):
-        """Setup logging configuration."""
-        if self.config.debug:
-            logging.basicConfig(level=logging.DEBUG)
-        else:
-            logging.basicConfig(level=logging.INFO)
-    
-    def send_new_courts_notification(self, 
-                                   facilities_data: List[Dict[str, Any]],
-                                   quote: Optional[str] = None) -> bool:
-        """Send notification about new available tennis courts."""
-        if not self.config.enabled:
-            logger.info("[EMAIL] Email notifications disabled")
-            return False
+    if 'facilities' in context:
+        # New courts notification
+        lines.append("🎾 NEW TENNIS COURTS AVAILABLE!")
+        lines.append("=" * 40)
+        lines.append("")
         
-        # Calculate summary statistics
-        total_new_courts = sum(
-            len(date_data.get('time_slots', {})) 
-            for facility in facilities_data 
-            for date_data in facility.get('dates', [])
-        )
+        total_courts = context.get('total_new_courts', 0)
+        lines.append(f"Found {total_courts} new court{'s' if total_courts != 1 else ''}")
+        lines.append("")
         
-        summary_stats = {
-            'facilities_count': len(facilities_data),
-            'dates_count': sum(len(f.get('dates', [])) for f in facilities_data),
-            'time_slots_count': total_new_courts,
-            'most_popular_time': self._get_most_popular_time(facilities_data)
-        }
-        
-        context = {
-            'facilities': facilities_data,
-            'total_new_courts': total_new_courts,
-            'summary_stats': summary_stats,
-            'quote': quote
-        }
-        
-        return self._send_template_email(
-            template_name='new_courts.html',
-            subject=f"🎾 {total_new_courts} New Tennis Court{'s' if total_new_courts != 1 else ''} Available!",
-            context=context
-        )
-    
-    def send_test_email(self, quote: Optional[str] = None) -> bool:
-        """Send a test email to verify configuration."""
-        context = {'quote': quote}
-        
-        return self._send_template_email(
-            template_name='test_email.html',
-            subject="📧 Email Test: Matchi Availability Bot",
-            context=context
-        )
-    
-    def send_daily_summary(self, stats: Dict[str, Any], quote: Optional[str] = None) -> bool:
-        """Send daily summary email."""
-        context = {
-            'stats': stats,
-            'popular_facilities': stats.get('popular_facilities', []),
-            'availability_trends': stats.get('availability_trends', []),
-            'quote': quote
-        }
-        
-        return self._send_template_email(
-            template_name='daily_summary.html',
-            subject="📊 Daily Tennis Court Summary",
-            context=context
-        )
-    
-    def _send_template_email(self, 
-                           template_name: str,
-                           subject: str,
-                           context: Dict[str, Any]) -> bool:
-        """Send email using template."""
-        try:
-            # Render HTML content
-            html_content = self.template_engine.render_template(template_name, **context)
+        for facility in context['facilities']:
+            lines.append(f"🏟️ {facility['name']}")
+            lines.append("-" * len(facility['name']))
             
-            # Generate plain text fallback
-            plain_content = self.template_engine.render_plain_text(html_content)
-            
-            return self._send_multipart_email(subject, html_content, plain_content)
-            
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to send template email: {e}")
-            return False
-    
-    def _send_multipart_email(self, 
-                            subject: str,
-                            html_content: str,
-                            plain_content: str) -> bool:
-        """Send multipart email with HTML and plain text."""
-        if not self.config.is_valid():
-            logger.error("[EMAIL] Invalid email configuration")
-            return False
-        
-        recipients = self.config.get_recipients()
-        if not recipients:
-            logger.error("[EMAIL] No valid recipients found")
-            return False
-        
-        try:
-            # Create message
-            message = MIMEMultipart('alternative')
-            message['From'] = formataddr((self.config.email_from_name, self.config.email_from))
-            message['To'] = ', '.join(recipients)
-            message['Subject'] = subject
-            message['Message-ID'] = make_msgid()
-            
-            if self.config.reply_to:
-                message['Reply-To'] = self.config.reply_to
-            
-            # Attach plain text and HTML parts
-            plain_part = MIMEText(plain_content, 'plain', 'utf-8')
-            html_part = MIMEText(html_content, 'html', 'utf-8')
-            
-            message.attach(plain_part)
-            message.attach(html_part)
-            
-            # Send email
-            return self._send_message(message, recipients)
-            
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to create email message: {e}")
-            return False
-    
-    def _send_message(self, message: MIMEMultipart, recipients: List[str]) -> bool:
-        """Send email message via SMTP."""
-        try:
-            # Create SMTP connection
-            if self.config.smtp_ssl:
-                server = smtplib.SMTP_SSL(
-                    self.config.smtp_host, 
-                    self.config.smtp_port,
-                    timeout=self.config.timeout
-                )
-            else:
-                server = smtplib.SMTP(
-                    self.config.smtp_host,
-                    self.config.smtp_port,
-                    timeout=self.config.timeout
-                )
-                if self.config.use_tls:
-                    server.starttls()
-            
-            # Set debug level
-            if self.config.debug:
-                server.set_debuglevel(1)
-            
-            try:
-                # Authenticate and send
-                server.login(self.config.smtp_user, self.config.smtp_pass)
-                server.send_message(message, to_addrs=recipients)
+            for date_info in facility['dates']:
+                lines.append(f"📅 {date_info['display_name']}")
                 
-                logger.info(f"[EMAIL] Successfully sent: {message['Subject']}")
-                return True
+                for time_slot in date_info['time_slots']:
+                    courts = ", ".join([court['name'] for court in time_slot['courts']])
+                    lines.append(f"  {time_slot['time']}: {courts}")
                 
-            finally:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
+                lines.append(f"  🔗 Book: {date_info['booking_url']}")
+                lines.append("")
+    
+    elif context.get('quote'):
+        # Test email
+        lines.extend([
+            "📧 EMAIL TEST SUCCESSFUL!",
+            "=" * 25,
+            "",
+            "✅ Your SMTP configuration is working perfectly!",
+            "",
+            "The tennis court monitoring system is ready to send notifications.",
+            "",
+            f"Quote: {context['quote']}",
+            "",
+            f"Generated at: {context.get('timestamp', 'Unknown')}"
+        ])
+    
+    return "\n".join(lines)
+
+
+def _create_fallback_content(**context) -> Tuple[str, str]:
+    """Create simple fallback content when templates aren't available."""
+    if 'facilities' in context:
+        # New courts notification
+        content_lines = [
+            "🎾 NEW TENNIS COURTS AVAILABLE!",
+            "",
+            f"Found {context.get('total_new_courts', 0)} new courts:",
+            ""
+        ]
+        
+        for facility in context['facilities']:
+            content_lines.append(f"🏟️ {facility['name']}")
+            for date_info in facility['dates']:
+                content_lines.append(f"📅 {date_info['display_name']}")
+                for time_slot in date_info['time_slots']:
+                    courts = ", ".join([court['name'] for court in time_slot['courts']])
+                    content_lines.append(f"  {time_slot['time']}: {courts}")
+                content_lines.append(f"  🔗 {date_info['booking_url']}")
+                content_lines.append("")
+    
+    else:
+        # Test email fallback
+        content_lines = [
+            "📧 EMAIL TEST SUCCESSFUL!",
+            "",
+            "Your SMTP configuration is working correctly.",
+            "",
+            f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ]
+    
+    content = "\n".join(content_lines)
+    return content, content  # Same content for both HTML and plain text
+
+
+def prepare_new_courts_email(
+    new_courts_data: Dict[str, Any],
+    quote: Optional[str] = None
+) -> Tuple[str, str, str]:
+    """Prepare new courts notification email.
+    
+    Args:
+        new_courts_data: Dictionary with facility -> date -> time_slot -> courts structure
+        quote: Optional quote to include
+        
+    Returns:
+        Tuple of (subject, html_body, plain_text_body)
+    """
+    # Transform data for template
+    facilities = []
+    total_new_courts = 0
+    
+    for facility_key, dates_data in new_courts_data.items():
+        facility_name = facility_key.capitalize()
+        facility_info = {
+            'name': facility_name,
+            'dates': []
+        }
+        
+        for date_obj, time_slots in dates_data.items():
+            if not time_slots:
+                continue
+                
+            date_display = _format_date_display(date_obj)
+            booking_url = _build_booking_url(facility_key, date_obj)
+            
+            date_info = {
+                'display_name': date_display,
+                'booking_url': booking_url,
+                'time_slots': []
+            }
+            
+            for time_slot, courts in time_slots.items():
+                if not courts:
+                    continue
                     
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"[EMAIL] SMTP authentication failed: {e}")
-        except smtplib.SMTPRecipientsRefused as e:
-            logger.error(f"[EMAIL] Recipients refused: {e}")
-        except smtplib.SMTPServerDisconnected as e:
-            logger.error(f"[EMAIL] SMTP server disconnected: {e}")
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to send email: {e}")
+                court_items = []
+                for court_name in courts:
+                    court_items.append({
+                        'name': court_name,
+                        'type': _get_court_type(court_name),
+                        'is_new': True  # All courts in this context are new
+                    })
+                    total_new_courts += 1
+                
+                date_info['time_slots'].append({
+                    'time': time_slot,
+                    'courts': court_items
+                })
+            
+            if date_info['time_slots']:
+                facility_info['dates'].append(date_info)
         
+        if facility_info['dates']:
+            facilities.append(facility_info)
+    
+    if not facilities:
+        return "No new courts", "", "No new courts available."
+    
+    # Generate subject
+    court_word = "court" if total_new_courts == 1 else "courts"
+    facility_word = "facility" if len(facilities) == 1 else "facilities"
+    subject = f"🎾 {total_new_courts} new tennis {court_word} available across {len(facilities)} {facility_word}"
+    
+    # Render template
+    context = {
+        'facilities': facilities,
+        'total_new_courts': total_new_courts,
+        'quote': quote
+    }
+    
+    html_body, plain_text_body = _render_template('new_courts.html', **context)
+    
+    return subject, html_body, plain_text_body
+
+
+def prepare_test_email(quote: Optional[str] = None) -> Tuple[str, str, str]:
+    """Prepare test email.
+    
+    Returns:
+        Tuple of (subject, html_body, plain_text_body)
+    """
+    subject = "📧 Email Test: Matchi Tennis Bot Configuration"
+    
+    context = {'quote': quote}
+    html_body, plain_text_body = _render_template('test_email.html', **context)
+    
+    return subject, html_body, plain_text_body
+
+
+def _format_date_display(date_obj: datetime.date) -> str:
+    """Format date for display in emails."""
+    today = datetime.date.today()
+    if date_obj == today:
+        return f"Today ({date_obj.strftime('%Y-%m-%d')})"
+    elif date_obj == today + datetime.timedelta(days=1):
+        return f"Tomorrow ({date_obj.strftime('%Y-%m-%d')})"
+    else:
+        return f"{date_obj.strftime('%A, %Y-%m-%d')}"
+
+
+def _build_booking_url(facility_key: str, date_obj: datetime.date) -> str:
+    """Build booking URL for facility and date."""
+    # Import here to avoid circular imports
+    try:
+        from facilities import facilities
+        facility_id = facilities.get(facility_key.lower())
+        if not facility_id:
+            return "https://www.matchi.se/book/schedule"
+            
+        date_str = date_obj.strftime("%Y-%m-%d")
+        return (
+            f"https://www.matchi.se/book/schedule?facilityId={facility_id}"
+            f"&date={date_str}&sport=1"
+        )
+    except ImportError:
+        return "https://www.matchi.se/book/schedule"
+
+
+def send_email_notification(
+    subject: str, 
+    body: str,
+    html_body: Optional[str] = None
+) -> bool:
+    """Send an email using SMTP configuration from environment variables.
+
+    Args:
+        subject: Email subject line
+        body: Plain text email body
+        html_body: Optional HTML email body for rich formatting
+
+    Expected environment variables:
+      - EMAIL_ENABLED: enable/disable sending (true/false)
+      - SMTP_HOST, SMTP_PORT, SMTP_SSL (true/false)
+      - SMTP_USER, SMTP_PASS
+      - EMAIL_FROM, EMAIL_TO (comma-separated)
+
+    Returns True on success, False otherwise.
+    """
+    _load_env()
+
+    email_enabled = _is_truthy(os.getenv("EMAIL_ENABLED", "false"))
+    if not email_enabled:
+        print("[EMAIL] Email notifications disabled")
         return False
-    
-    def _get_most_popular_time(self, facilities_data: List[Dict[str, Any]]) -> Optional[str]:
-        """Find the most popular time slot across all facilities."""
-        time_counts = {}
+
+    try:
+        smtp_host = os.getenv("SMTP_HOST", "").strip()
+        smtp_port_text = os.getenv("SMTP_PORT", "587").strip()
+        try:
+            smtp_port = int(smtp_port_text)
+        except ValueError:
+            smtp_port = 587
+        smtp_ssl = _is_truthy(os.getenv("SMTP_SSL", "false"))
+        smtp_user = os.getenv("SMTP_USER", "").strip()
+        smtp_pass = os.getenv("SMTP_PASS", "").strip()
+        email_from = os.getenv("EMAIL_FROM", "").strip()
+        email_to = os.getenv("EMAIL_TO", "").strip()
+
+        if not all([smtp_host, smtp_user, smtp_pass, email_from, email_to]):
+            print("[EMAIL] Missing SMTP configuration")
+            return False
+
+        recipients = [addr.strip() for addr in email_to.split(",") if addr.strip()]
+        if not recipients:
+            print("[EMAIL] No valid recipients found")
+            return False
+
+        # Create multipart message
+        message = MIMEMultipart("alternative")
+        message["From"] = email_from
+        message["To"] = ", ".join(recipients)
+        message["Subject"] = subject
         
-        for facility in facilities_data:
-            for date_data in facility.get('dates', []):
-                for time_slot in date_data.get('time_slots', {}):
-                    time_counts[time_slot] = time_counts.get(time_slot, 0) + 1
+        # Add plain text part
+        text_part = MIMEText(body, "plain", "utf-8")
+        message.attach(text_part)
         
-        if not time_counts:
-            return None
+        # Add HTML part if provided
+        if html_body:
+            html_part = MIMEText(html_body, "html", "utf-8")
+            message.attach(html_part)
+
+        # Connect to SMTP server
+        if smtp_ssl:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port)
+            server.starttls()
+
+        try:
+            server.login(smtp_user, smtp_pass)
+            server.send_message(message, to_addrs=recipients)
+        finally:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+        print(f"[EMAIL] Sent: {subject}")
+        return True
         
-        return max(time_counts.items(), key=lambda x: x[1])[0]
+    except Exception as exc:  # pragma: no cover
+        print(f"[EMAIL] Failed to send: {exc}")
+        return False
 
 
-# Legacy function for backward compatibility
-def send_email_notification(subject: str, body: str) -> bool:
-    """Legacy function for backward compatibility.
+def send_new_courts_notification(
+    new_courts_data: Dict[str, Any],
+    quote: Optional[str] = None
+) -> bool:
+    """Send notification about new courts using beautiful HTML template.
     
-    This maintains compatibility with existing code while using the new system.
+    Args:
+        new_courts_data: Dictionary with new courts data
+        quote: Optional quote to include
+        
+    Returns:
+        True if email sent successfully, False otherwise
     """
-    system = EmailNotificationSystem()
+    subject, html_body, plain_text_body = prepare_new_courts_email(new_courts_data, quote)
+    return send_email_notification(subject, plain_text_body, html_body)
+
+
+def send_test_email(quote: Optional[str] = None) -> bool:
+    """Send a test email to verify SMTP configuration.
     
-    # Create a simple HTML wrapper for the plain text body
-    html_content = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #2c3e50;">{subject}</h2>
-            <div style="white-space: pre-wrap;">{body}</div>
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-            <p style="color: #7f8c8d; font-size: 14px;">
-                Sent by Matchi Availability Bot on {datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')}
-            </p>
-        </div>
-    </body>
-    </html>
+    Args:
+        quote: Optional quote to include
+        
+    Returns:
+        True if email sent successfully, False otherwise
     """
-    
-    return system._send_multipart_email(subject, html_content, body)
-
-
-# Main interface functions
-def create_email_system() -> EmailNotificationSystem:
-    """Create and return configured email notification system."""
-    return EmailNotificationSystem()
-
-
-def send_new_courts_email(facilities_data: List[Dict[str, Any]], quote: Optional[str] = None) -> bool:
-    """Send notification about new available courts using beautiful template."""
-    system = create_email_system()
-    return system.send_new_courts_notification(facilities_data, quote)
-
-
-def send_test_email() -> bool:
-    """Send a test email using the new template system."""
-    system = create_email_system()
-    return system.send_test_email()
-
-
-if __name__ == "__main__":
-    # Test the email system
-    print("Testing email notification system...")
-    success = send_test_email()
-    print(f"Test email {'sent successfully' if success else 'failed to send'}")
+    subject, html_body, plain_text_body = prepare_test_email(quote)
+    return send_email_notification(subject, plain_text_body, html_body)
 
 

@@ -1,36 +1,42 @@
 {% extends "base.html" %}
 
-{% block title %}Test Email - Matchi Bot{% endblock %}
+{% block title %}📧 Email Test - Matchi Tennis Bot{% endblock %}
 
-{% block header_title %}📧 Email Test Successful{% endblock %}
+{% block header_title %}Email Test Successful!{% endblock %}
 {% block header_subtitle %}Your SMTP configuration is working perfectly{% endblock %}
 
 {% block content %}
-<div class="alert alert-success">
-    <strong>✅ Success!</strong> If you're reading this, your email configuration is working correctly.
+<h2>✅ Congratulations! Your email setup is working</h2>
+
+<p>If you're reading this beautifully formatted email, it means:</p>
+
+<div style="background-color: #f0f8ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+    <ul style="margin: 0; padding-left: 20px; color: #2d3748;">
+        <li style="margin-bottom: 8px;">✅ Your SMTP server connection is working</li>
+        <li style="margin-bottom: 8px;">✅ Authentication credentials are correct</li>
+        <li style="margin-bottom: 8px;">✅ Email delivery is successful</li>
+        <li style="margin-bottom: 8px;">✅ HTML templates are rendering properly</li>
+    </ul>
 </div>
 
-<h2>🔧 Configuration Test Results</h2>
-<ul>
-    <li><strong>SMTP Connection:</strong> ✅ Connected successfully</li>
-    <li><strong>Authentication:</strong> ✅ Credentials verified</li>
-    <li><strong>Email Delivery:</strong> ✅ Message delivered</li>
-    <li><strong>HTML Rendering:</strong> ✅ Template system working</li>
-</ul>
+<p>The tennis court monitoring system is now ready to send you beautiful notifications whenever new courts become available!</p>
 
-<h3>📋 Next Steps</h3>
-<p>Your Matchi Availability Bot is now ready to send beautiful email notifications when new tennis courts become available. The bot will:</p>
+<div class="cta-section">
+    <a href="https://www.matchi.se/book/schedule" class="cta-button">
+        🎾 Visit Matchi.se
+    </a>
+</div>
 
-<ul>
-    <li>Monitor your selected facilities for court availability</li>
-    <li>Send instant notifications when new courts are found</li>
-    <li>Provide direct booking links for quick reservation</li>
-    <li>Include helpful statistics and tennis quotes</li>
-</ul>
+{% if quote %}
+<div class="quote-section">
+    <p style="margin: 0; font-size: 15px;">{{ quote }}</p>
+</div>
+{% endif %}
 
-<div class="alert alert-info">
-    <strong>🎾 Happy tennis!</strong> 
-    Your bot is now actively monitoring for court availability. 
-    You'll receive notifications like this one whenever new courts become available.
+<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 6px; margin: 20px 0;">
+    <p style="margin: 0; color: #856404; font-size: 14px;">
+        <strong>💡 Pro tip:</strong> You can now start monitoring with:<br>
+        <code style="background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px;">python check_availability.py monitor</code>
+    </p>
 </div>
 {% endblock %}
