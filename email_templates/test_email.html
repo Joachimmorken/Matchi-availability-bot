@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}📧 Email Test - Matchi Tennis Bot{% endblock %}
+
+{% block header_title %}Email Test Successful!{% endblock %}
+{% block header_subtitle %}Your SMTP configuration is working perfectly{% endblock %}
+
+{% block content %}
+<h2>✅ Congratulations! Your email setup is working</h2>
+
+<p>If you're reading this beautifully formatted email, it means:</p>
+
+<div style="background-color: #f0f8ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+    <ul style="margin: 0; padding-left: 20px; color: #2d3748;">
+        <li style="margin-bottom: 8px;">✅ Your SMTP server connection is working</li>
+        <li style="margin-bottom: 8px;">✅ Authentication credentials are correct</li>
+        <li style="margin-bottom: 8px;">✅ Email delivery is successful</li>
+        <li style="margin-bottom: 8px;">✅ HTML templates are rendering properly</li>
+    </ul>
+</div>
+
+<p>The tennis court monitoring system is now ready to send you beautiful notifications whenever new courts become available!</p>
+
+<div class="cta-section">
+    <a href="https://www.matchi.se/book/schedule" class="cta-button">
+        🎾 Visit Matchi.se
+    </a>
+</div>
+
+{% if quote %}
+<div class="quote-section">
+    <p style="margin: 0; font-size: 15px;">{{ quote }}</p>
+</div>
+{% endif %}
+
+<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 6px; margin: 20px 0;">
+    <p style="margin: 0; color: #856404; font-size: 14px;">
+        <strong>💡 Pro tip:</strong> You can now start monitoring with:<br>
+        <code style="background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px;">python check_availability.py monitor</code>
+    </p>
+</div>
+{% endblock %}

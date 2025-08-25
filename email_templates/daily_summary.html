@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Daily Summary - Matchi Bot{% endblock %}
+
+{% block header_title %}📊 Daily Court Summary{% endblock %}
+{% block header_subtitle %}Your tennis court availability report{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>📈 Daily Report</strong> Here's what happened with court availability today.
+</div>
+
+<h2>📅 Today's Activity</h2>
+<ul>
+    <li><strong>Monitoring sessions:</strong> {{ stats.monitoring_sessions }}</li>
+    <li><strong>Total courts checked:</strong> {{ stats.total_courts_checked }}</li>
+    <li><strong>New courts found:</strong> {{ stats.new_courts_found }}</li>
+    <li><strong>Notifications sent:</strong> {{ stats.notifications_sent }}</li>
+</ul>
+
+{% if popular_facilities %}
+<h3>🏆 Most Popular Facilities Today</h3>
+{% for facility in popular_facilities %}
+<div class="court-card">
+    <div class="facility-name">{{ facility.name }}</div>
+    <p><strong>New courts found:</strong> {{ facility.new_courts }}</p>
+    <p><strong>Peak availability time:</strong> {{ facility.peak_time }}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if availability_trends %}
+<h3>📈 Availability Trends</h3>
+<ul>
+    {% for trend in availability_trends %}
+    <li><strong>{{ trend.time_period }}:</strong> {{ trend.description }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<div class="alert alert-success">
+    <strong>🎾 Keep playing!</strong> 
+    The bot will continue monitoring for new court availability. 
+    Check back tomorrow for another summary!
+</div>
+{% endblock %}
