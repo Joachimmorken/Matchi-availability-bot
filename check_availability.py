@@ -18,7 +18,11 @@ from rich.text import Text
 from rich import box
 
 from facilities import facilities
-from email_notifications import send_email_notification, send_new_courts_email, send_test_email as send_beautiful_test_email
+from email_notifications import (
+    send_email_notification as send_email,
+    send_new_courts_notification,
+    send_test_email
+)
 
 # Initialize rich console
 console = Console()
@@ -60,7 +64,7 @@ def send_notification(title, message, also_email: bool = False, email_body: str 
         # Optionally send email (best-effort)
         if also_email:
             try:
-                send_email_notification(subject=title, body=(email_body or message))
+                send_email(subject=title, body=(email_body or message))
             except Exception:
                 pass
 
@@ -429,12 +433,55 @@ def _build_schedule_url(facility_id: int, date_obj: datetime.date) -> str:
     )
 
 
+def _build_new_courts_email_data(
+    current_slots,
+    previous_slots,
+    dates: list[datetime.date],
+) -> dict[str, dict[datetime.date, dict[str, list[str]]]]:
+    """Transform slot data into format needed for new email system.
+    
+    Returns:
+        Dict with structure: facility_key -> date -> time_slot -> [court_names]
+        Only includes NEW courts that weren't in previous_slots.
+    """
+    new_courts_data = {}
+    
+    for facility_key in facilities.keys():
+        facility_new_courts = {}
+        
+        for date_obj in dates:
+            new_courts, _removed = get_slot_changes(
+                current_slots, previous_slots, facility_key, date_obj
+            )
+            
+            if not new_courts:
+                continue
+                
+            # Group new courts by time slot
+            time_to_courts = {}
+            for time_slot, court in sorted(new_courts):
+                time_to_courts.setdefault(time_slot, []).append(court)
+            
+            if time_to_courts:
+                facility_new_courts[date_obj] = time_to_courts
+        
+        if facility_new_courts:
+            new_courts_data[facility_key] = facility_new_courts
+    
+    return new_courts_data
+
+
 def _build_new_slots_email_body(
     current_slots,
     previous_slots,
     dates: list[datetime.date],
 ) -> str:
-    """Create a detailed email body listing new courts by facility/date with links."""
+    """Create a detailed email body listing new courts by facility/date with links.
+    
+    Note: This function is kept for backward compatibility but now creates
+    a simple plain text version. The new HTML templates are handled by
+    the enhanced email_notifications module.
+    """
     lines: list[str] = []
     lines.append("New tennis courts are available:\n")
 
@@ -471,73 +518,6 @@ def _build_new_slots_email_body(
     return "\n".join(lines).strip()
 
 
-def _convert_to_beautiful_email_data(
-    current_slots,
-    previous_slots,
-    dates: list[datetime.date],
-) -> list[dict]:
-    """Convert slot data to format expected by beautiful email templates."""
-    facilities_data = []
-    
-    for facility_key in facilities.keys():
-        facility_display = facility_key.capitalize()
-        facility_id = facilities[facility_key]
-        facility_dates = []
-        
-        for date_obj in dates:
-            new_courts, _removed = get_slot_changes(
-                current_slots, previous_slots, facility_key, date_obj
-            )
-            if not new_courts:
-                continue
-            
-            # Group new courts by time slot
-            time_to_courts: dict[str, list[str]] = {}
-            for time_slot, court in sorted(new_courts):
-                time_to_courts.setdefault(time_slot, []).append(court)
-            
-            if time_to_courts:  # Only add if there are courts
-                facility_dates.append({
-                    'date': date_obj,
-                    'time_slots': time_to_courts,
-                    'booking_url': _build_schedule_url(facility_id, date_obj)
-                })
-        
-        if facility_dates:  # Only add facility if it has dates with courts
-            facilities_data.append({
-                'name': facility_display,
-                'dates': facility_dates
-            })
-    
-    return facilities_data
-
-
-def send_beautiful_email_notification(
-    current_slots,
-    previous_slots,
-    dates: list[datetime.date],
-) -> bool:
-    """Send beautiful HTML email notification for new courts."""
-    try:
-        # Convert data to format expected by email templates
-        facilities_data = _convert_to_beautiful_email_data(
-            current_slots, previous_slots, dates
-        )
-        
-        if not facilities_data:
-            return False  # No new courts to notify about
-        
-        # Get a random quote
-        quote = _get_random_quote()
-        
-        # Send the beautiful email
-        return send_new_courts_email(facilities_data, quote)
-        
-    except Exception as e:
-        console.print(f"❌ Failed to send beautiful email: {e}", style="bold red")
-        return False
-
-
 def _get_random_quote() -> str | None:
     """Pick a random quote from quotes.csv if present."""
     try:
@@ -561,34 +541,53 @@ def _get_random_quote() -> str | None:
     except Exception:
         return None
 
-
 def show_legend(
     dates: list[datetime.date],
     between: tuple[datetime.time, datetime.time] | None = None,
 ):
-    """Show helpful info about what's being monitored."""
+    """Display the legend for court types and status indicators."""
     console.print("\n🎾 Tennis Court Availability Monitor", style="bold blue")
-    console.print("=" * 50, style="blue")
-    
-    # Show facilities
-    facility_names = ", ".join(f.capitalize() for f in facilities.keys())
-    console.print(f"🏟️  Facilities: {facility_names}", style="white")
-    
-    # Show dates
-    if len(dates) == 1:
-        console.print(f"📅 Date: {format_date_header(dates[0])}", style="white")
+    if not dates:
+        date_summary = "No dates"
+    elif len(dates) <= 5:
+        date_summary = ", ".join(d.strftime("%Y-%m-%d") for d in dates)
     else:
-        start_date = format_date_header(dates[0])
-        end_date = format_date_header(dates[-1])
-        console.print(f"📅 Dates: {start_date} → {end_date} ({len(dates)} days)", style="white")
-    
-    # Show time filter
+        start_str = dates[0].strftime("%Y-%m-%d")
+        end_str = dates[-1].strftime("%Y-%m-%d")
+        date_summary = f"{start_str} … {end_str} ({len(dates)} dates)"
+    console.print(
+        f"Monitoring both Frogner and Voldsløkka for: {date_summary}",
+        style="blue",
+    )
     if between:
-        start_time = between[0].strftime("%H:%M")
-        end_time = between[1].strftime("%H:%M")
-        console.print(f"⏰ Time filter: {start_time} - {end_time}", style="white")
-    
-    console.print("=" * 50, style="blue")
+        start_hhmm = between[0].strftime("%H:%M")
+        end_hhmm = between[1].strftime("%H:%M")
+        console.print(
+            f"Time filter: {start_hhmm}–{end_hhmm}",
+            style="blue",
+        )
+
+    legend_table = Table(
+        title="Legend",
+        box=box.SIMPLE,
+        show_header=False,
+        title_style="bold yellow",
+    )
+    legend_table.add_column("Symbol", style="bold")
+    legend_table.add_column("Meaning")
+
+    legend_table.add_row("🟡 Grusbane", "[yellow]Clay courts[/yellow]")
+    legend_table.add_row("🔵 Hardcourt", "[cyan]Hard courts[/cyan]")
+    legend_table.add_row(
+        "🆕 New", "[bold bright_green]Newly available[/bold bright_green]"
+    )
+    legend_table.add_row("❌ Removed", "[strike dim]No longer available[/strike dim]")
+    legend_table.add_row(
+        "🔔 Alerts", "[blue]Visual popups (auto-close after 5s)[/blue]"
+    )
+
+    console.print(legend_table)
+    console.print("Press Ctrl+C to stop monitoring\n", style="dim")
 
 
 def test_notifications():
@@ -656,43 +655,45 @@ def test_email():
     """Send a test email using SMTP configuration from environment variables."""
     console.print("\n📧 Sending test email...", style="bold blue")
     
-    # Try the beautiful template system first
-    try:
-        console.print("🎨 Attempting to send beautiful HTML email...", style="blue")
-        success = send_beautiful_test_email()
-        if success:
-            console.print("✅ Beautiful test email sent successfully!", style="bold green")
-            console.print("💌 Check your inbox for a gorgeous HTML email!", style="green")
-            return
-        else:
-            console.print("⚠️  Beautiful email failed, trying legacy format...", style="yellow")
-    except Exception as e:
-        console.print(f"⚠️  Beautiful email error: {e}", style="yellow")
-        console.print("📧 Falling back to legacy email format...", style="blue")
-    
-    # Fallback to legacy system
-    subject = "📧 Email Test: Matchi Availability Bot"
-    body_lines = [
-        "If you received this message, your SMTP configuration works.",
-        "",
-        "This is an automated test message from Matchi Availability Bot.",
-    ]
+    # Get a random quote
     quote = _get_random_quote()
-    if quote:
-        body_lines.extend(["", f"Quote: {quote}"])
-    body = "\n".join(body_lines)
     
     try:
-        ok = send_email_notification(subject=subject, body=body)
+        # Try the new enhanced email first
+        ok = send_test_email(quote)
         if ok:
-            console.print("✅ Legacy test email sent successfully.", style="bold green")
+            console.print("✅ Test email sent successfully.", style="bold green")
+            console.print("📧 Check your inbox for a beautifully formatted HTML email!", style="green")
         else:
             console.print(
                 "❌ Test email did not send. Check EMAIL_* and SMTP_* env vars.",
                 style="bold red",
             )
     except Exception as exc:
-        console.print(f"❌ Error sending test email: {exc}", style="bold red")
+        console.print(f"❌ Error sending enhanced test email: {exc}", style="bold red")
+        console.print("🔄 Trying fallback email format...", style="yellow")
+        
+        # Fallback to simple email
+        subject = "📧 Email Test: Matchi Availability Bot"
+        body_lines = [
+            "If you received this message, your SMTP configuration works.",
+            "",
+            "This is an automated test message from Matchi Availability Bot.",
+        ]
+        if quote:
+            body_lines.extend(["", f"Quote: {quote}"])
+        body = "\n".join(body_lines)
+        try:
+            ok = send_email(subject=subject, body=body)
+            if ok:
+                console.print("✅ Fallback test email sent successfully.", style="bold green")
+            else:
+                console.print(
+                    "❌ Test email did not send. Check EMAIL_* and SMTP_* env vars.",
+                    style="bold red",
+                )
+        except Exception as exc2:
+            console.print(f"❌ Error sending fallback test email: {exc2}", style="bold red")
 
 
 def run_monitor(
@@ -730,33 +731,40 @@ def run_monitor(
                     if len(new_changes) > 3:
                         summary += f" and {len(new_changes) - 3} more..."
 
-                    # Try to send beautiful email notification
-                    beautiful_email_sent = send_beautiful_email_notification(
+                    # Prepare data for enhanced email notification
+                    new_courts_data = _build_new_courts_email_data(
                         current_slots=current_slots,
                         previous_slots=previous_slots,
                         dates=dates,
                     )
                     
-                    # Fallback to legacy email if beautiful email fails
-                    if not beautiful_email_sent:
+                    # Get a random quote
+                    quote = _get_random_quote()
+                    
+                    # Send desktop notification
+                    send_notification(
+                        title="🎾 New Tennis Courts Available!",
+                        message=summary,
+                        also_email=False,  # We'll handle email separately with better formatting
+                    )
+                    
+                    # Send enhanced HTML email notification
+                    try:
+                        if new_courts_data:  # Only send if we have new courts
+                            send_new_courts_notification(new_courts_data, quote)
+                    except Exception as e:
+                        # Fallback to old email system if new one fails
+                        print(f"[EMAIL] Enhanced email failed, using fallback: {e}")
                         email_body = _build_new_slots_email_body(
                             current_slots=current_slots,
                             previous_slots=previous_slots,
                             dates=dates,
                         )
-                        
                         send_notification(
                             title="🎾 New Tennis Courts Available!",
                             message=summary,
                             also_email=True,
                             email_body=email_body,
-                        )
-                    else:
-                        # Just send desktop notification since beautiful email was sent
-                        send_notification(
-                            title="🎾 New Tennis Courts Available!",
-                            message=summary,
-                            also_email=False,
                         )
 
                 console.print("\n🔔 Changes detected!", style="bold green")
@@ -856,13 +864,6 @@ For more information, visit: https://github.com/your-username/tennis-bot
         ),
     )
 
-    # Test beautiful email command
-    subparsers.add_parser(
-        "test-beautiful-email",
-        help="Test the beautiful HTML email system",
-        description="Send a test email using the new beautiful HTML template system",
-    )
-
     # Monitoring options (apply to monitor command)
     monitor_parser.add_argument(
         "--days-ahead",
@@ -950,17 +951,6 @@ For more information, visit: https://github.com/your-username/tennis-bot
         test_notifications()
     elif args.command == "test-email":
         test_email()
-    elif args.command == "test-beautiful-email":
-        console.print("\n🎨 Testing beautiful HTML email system...", style="bold blue")
-        try:
-            success = send_beautiful_test_email()
-            if success:
-                console.print("✅ Beautiful test email sent successfully!", style="bold green")
-                console.print("💌 Check your inbox for a gorgeous HTML email!", style="green")
-            else:
-                console.print("❌ Beautiful email failed to send. Check your configuration.", style="bold red")
-        except Exception as e:
-            console.print(f"❌ Error: {e}", style="bold red")
     else:
         parser.print_help()
 

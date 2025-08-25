@@ -1,52 +1,99 @@
 {% extends "base.html" %}
 
-{% block title %}New Tennis Courts Available - Matchi Bot{% endblock %}
+{% block title %}🆕 New Tennis Courts Available - Matchi{% endblock %}
 
-{% block header_title %}🎾 New Tennis Courts Available!{% endblock %}
-{% block header_subtitle %}Fresh court availability just detected{% endblock %}
+{% block header_title %}New Courts Available!{% endblock %}
+{% block header_subtitle %}Fresh tennis slots just opened up{% endblock %}
 
 {% block content %}
-<div class="alert alert-success">
-    <strong>🎉 Great news!</strong> We found {{ total_new_courts }} new tennis court{{ 's' if total_new_courts != 1 else '' }} available for booking.
+<!-- CRITICAL INFO FIRST - Time, Place & Courts -->
+<div style="background: linear-gradient(135deg, #48bb78, #38a169); color: white; padding: 20px; border-radius: 10px; margin-bottom: 25px; text-align: center;">
+    <h2 style="margin: 0 0 15px 0; font-size: 24px;">⚡ QUICK SUMMARY ⚡</h2>
+    <div style="font-size: 18px; font-weight: 600; margin-bottom: 10px;">
+        🎾 {{ total_new_courts }} NEW COURT{{ 'S' if total_new_courts != 1 else '' }} AVAILABLE NOW!
+    </div>
+    
+    {% for facility_data in facilities %}
+        {% for date_info in facility_data.dates %}
+            <div style="background: rgba(255,255,255,0.15); margin: 8px 0; padding: 12px; border-radius: 6px;">
+                <div style="font-weight: 700; font-size: 16px; margin-bottom: 5px;">
+                    🏟️ {{ facility_data.name|upper }} - {{ date_info.display_name }}
+                </div>
+                {% for time_slot in date_info.time_slots %}
+                <div style="margin: 5px 0;">
+                    <strong>{{ time_slot.time }}</strong>: 
+                    {% for court in time_slot.courts %}{{ court.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </div>
+                {% endfor %}
+                <div style="margin-top: 8px;">
+                    <a href="{{ date_info.booking_url }}" style="background: white; color: #38a169; padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 600; display: inline-block;">
+                        📱 BOOK NOW
+                    </a>
+                </div>
+            </div>
+        {% endfor %}
+    {% endfor %}
 </div>
 
-<h2>📅 Available Courts by Facility</h2>
+<h2>🎉 Great news! New courts are available for booking</h2>
+
+<p style="text-align: center; font-size: 16px; color: #4a5568; margin-bottom: 25px;">
+    We found <strong>{{ total_new_courts }}</strong> new court{{ 's' if total_new_courts != 1 else '' }} 
+    across <strong>{{ facilities|length }}</strong> facilit{{ 'ies' if facilities|length != 1 else 'y' }}
+</p>
 
 {% for facility_data in facilities %}
-<div class="court-card">
-    <div class="facility-name">{{ facility_data.name }}</div>
+<div class="court-section">
+    <div class="facility-name">
+        <span class="facility-icon">🏟️</span>
+        {{ facility_data.name }}
+    </div>
     
-    {% for date_data in facility_data.dates %}
-    <div class="date-header">📆 {{ date_data.date.strftime('%A, %B %d, %Y') }}</div>
+    {% for date_info in facility_data.dates %}
+    <div class="date-header">
+        📅 {{ date_info.display_name }}
+    </div>
     
-    {% for time_slot, courts in date_data.time_slots.items() %}
-    <div style="margin-bottom: 12px;">
-        <span class="time-slot">⏰ {{ time_slot }}</span>
+    {% for time_slot in date_info.time_slots %}
+    <div class="time-slot">
+        <div class="time-badge">{{ time_slot.time }}</div>
         <div class="courts-list">
-            <strong>Courts:</strong> {{ courts | join(', ') }}
+            {% for court in time_slot.courts %}
+            <span class="court-item {{ court.type }} {{ 'new' if court.is_new else '' }}">
+                {% if court.type == 'clay' %}🟡{% elif court.type == 'hard' %}🔵{% else %}⚪{% endif %}
+                {{ court.name }}
+                {% if court.is_new %}✨{% endif %}
+            </span>
+            {% endfor %}
         </div>
     </div>
     {% endfor %}
     
-    <div class="view-link">
-        <a href="{{ date_data.booking_url }}" class="btn">🔗 Book Courts for {{ date_data.date.strftime('%m/%d') }}</a>
+    <div class="cta-section">
+        <a href="{{ date_info.booking_url }}" class="cta-button">
+            🎾 Book at {{ facility_data.name }}
+        </a>
     </div>
     {% endfor %}
 </div>
 {% endfor %}
 
-{% if summary_stats %}
-<h3>📊 Summary</h3>
-<ul>
-    <li><strong>Total facilities with new courts:</strong> {{ summary_stats.facilities_count }}</li>
-    <li><strong>Total dates with availability:</strong> {{ summary_stats.dates_count }}</li>
-    <li><strong>Total new time slots:</strong> {{ summary_stats.time_slots_count }}</li>
-    <li><strong>Most popular time:</strong> {{ summary_stats.most_popular_time or 'N/A' }}</li>
-</ul>
+<div style="text-align: center; margin: 25px 0; padding: 20px; background-color: #f0f8ff; border-radius: 8px; border: 1px solid #667eea;">
+    <p style="margin: 0; color: #2d3748; font-weight: 500;">
+        ⚡ <strong>Act fast!</strong> These courts are being monitored by others too.
+    </p>
+</div>
+
+{% if quote %}
+<div class="quote-section">
+    <p style="margin: 0; font-size: 15px;">{{ quote }}</p>
+</div>
 {% endif %}
 
-<div class="alert alert-info">
-    <strong>💡 Pro tip:</strong> These courts are available now, but they fill up quickly! 
-    Click the booking links above to secure your court time.
+<div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+    <p style="margin: 0; color: #718096; font-size: 14px;">
+        🔔 You'll only receive emails when <strong>new</strong> courts become available.<br>
+        No spam, just the good stuff! 🎾
+    </p>
 </div>
 {% endblock %}
