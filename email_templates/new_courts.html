@@ -6,35 +6,6 @@
 {% block header_subtitle %}Fresh tennis slots just opened up{% endblock %}
 
 {% block content %}
-<!-- CRITICAL INFO FIRST - Time, Place & Courts -->
-<div style="background: linear-gradient(135deg, #48bb78, #38a169); color: white; padding: 20px; border-radius: 10px; margin-bottom: 25px; text-align: center;">
-    <h2 style="margin: 0 0 15px 0; font-size: 24px;">⚡ QUICK SUMMARY ⚡</h2>
-    <div style="font-size: 18px; font-weight: 600; margin-bottom: 10px;">
-        🎾 {{ total_new_courts }} NEW COURT{{ 'S' if total_new_courts != 1 else '' }} AVAILABLE NOW!
-    </div>
-    
-    {% for facility_data in facilities %}
-        {% for date_info in facility_data.dates %}
-            <div style="background: rgba(255,255,255,0.15); margin: 8px 0; padding: 12px; border-radius: 6px;">
-                <div style="font-weight: 700; font-size: 16px; margin-bottom: 5px;">
-                    🏟️ {{ facility_data.name|upper }} - {{ date_info.display_name }}
-                </div>
-                {% for time_slot in date_info.time_slots %}
-                <div style="margin: 5px 0;">
-                    <strong>{{ time_slot.time }}</strong>: 
-                    {% for court in time_slot.courts %}{{ court.name }}{% if not loop.last %}, {% endif %}{% endfor %}
-                </div>
-                {% endfor %}
-                <div style="margin-top: 8px;">
-                    <a href="{{ date_info.booking_url }}" style="background: white; color: #38a169; padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 600; display: inline-block;">
-                        📱 BOOK NOW
-                    </a>
-                </div>
-            </div>
-        {% endfor %}
-    {% endfor %}
-</div>
-
 <h2>🎉 Great news! New courts are available for booking</h2>
 
 <p style="text-align: center; font-size: 16px; color: #4a5568; margin-bottom: 25px;">

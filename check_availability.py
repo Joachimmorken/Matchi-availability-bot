@@ -443,13 +443,19 @@ def _build_new_courts_email_data(
     Returns:
         Dict with structure: facility_key -> date -> time_slot -> [court_names]
         Only includes NEW courts that weren't in previous_slots.
+        Only includes dates from today onwards (filters out past dates).
     """
     new_courts_data = {}
+    today = datetime.date.today()
     
     for facility_key in facilities.keys():
         facility_new_courts = {}
         
         for date_obj in dates:
+            # Skip past dates - only include today and future dates in emails
+            if date_obj < today:
+                continue
+                
             new_courts, _removed = get_slot_changes(
                 current_slots, previous_slots, facility_key, date_obj
             )
@@ -481,15 +487,21 @@ def _build_new_slots_email_body(
     Note: This function is kept for backward compatibility but now creates
     a simple plain text version. The new HTML templates are handled by
     the enhanced email_notifications module.
+    Only includes dates from today onwards (filters out past dates).
     """
     lines: list[str] = []
     lines.append("New tennis courts are available:\n")
+    today = datetime.date.today()
 
     for facility_key in facilities.keys():
         facility_display = facility_key.capitalize()
         facility_id = facilities[facility_key]
 
         for date_obj in dates:
+            # Skip past dates - only include today and future dates in emails
+            if date_obj < today:
+                continue
+                
             new_courts, _removed = get_slot_changes(
                 current_slots, previous_slots, facility_key, date_obj
             )
