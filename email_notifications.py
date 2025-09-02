@@ -197,6 +197,7 @@ def prepare_new_courts_email(
     # Transform data for template
     facilities = []
     total_new_courts = 0
+    today = datetime.date.today()
     
     for facility_key, dates_data in new_courts_data.items():
         facility_name = facility_key.capitalize()
@@ -206,6 +207,10 @@ def prepare_new_courts_email(
         }
         
         for date_obj, time_slots in dates_data.items():
+            # Skip past dates - only include today and future dates in emails
+            if date_obj < today:
+                continue
+                
             if not time_slots:
                 continue
                 
